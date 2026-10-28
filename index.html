@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Merugu — 3D Portfolio (Sample)</title>
+<!--
+  Prabha1, rewritten minimal at Dinesh's order: ONLY water and boat.
+  No scroll (the page cannot scroll; the only motion is the boat), no gate, no scenery.
+
+  Sky + water: FOLIO's own assets, used directly (Dinesh's order) —
+    sky:   assets/sky.hdr, the Poly Haven kloofendal partly-cloudy HDRI folio
+           loads, on a backside sphere at folio's day rotation + environment;
+    water: three's classic mirror Water with folio's simple/waternormals.jpeg
+           and folio's settings (2048 reflection, distortionScale 3).
+  Boat + boatman: Sakura Fantasy by Bill Chan (MIT) —
+    boat:  boat/boat.glb (tomabune) + boat/boatman.glb, rigged per frame by their
+           figures.js createBoatman solver and boat.js sculling logic;
+    shared material patch system: lib/sakura/shared.js.
+  Boatman figure body: MPFB / MakeHuman (CC0). three.js r160 (MIT).
+-->
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1622; overscroll-behavior: none; }
+  body { position: fixed; inset: 0; font-family: Georgia, 'Times New Roman', serif; }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; touch-action: none; }
+  #veil { position: fixed; inset: 0; z-index: 50; background: #0d1622; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; gap: 10px; color: #cfe0ee; transition: opacity .9s; }
+  #veil .t { font-size: 15px; letter-spacing: .5em; text-transform: uppercase; }
+  #veil .s { font-size: 12px; letter-spacing: .18em; color: #7e97ac; font-style: italic; }
+  #veil.gone { opacity: 0; pointer-events: none; }
+  #hint { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 9998; color: #eaf2f8;
+          background: rgba(10,18,28,.38); border: 1px solid rgba(255,255,255,.22); padding: 6px 14px;
+          border-radius: 999px; font-size: 13px; letter-spacing: .06em; pointer-events: none;
+          transition: opacity .6s; white-space: nowrap; }
+  @media (pointer: coarse) { #hint { bottom: 92px; } }
+  /* ---- project dock panel (portfolio sample) ---- */
+  #project-panel { position: fixed; left: 50%; bottom: 18px; transform: translate(-50%, 24px); z-index: 9999;
+    width: min(520px, calc(100vw - 28px)); box-sizing: border-box; padding: 16px 20px 14px;
+    background: rgba(13, 48, 80, .78); border: 1px solid rgba(179, 211, 224, .45); border-radius: 18px;
+    color: #F4FAFD; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    opacity: 0; pointer-events: none; transition: opacity .45s, transform .45s; }
+  #project-panel.show { opacity: 1; transform: translate(-50%, 0); }
+  #project-panel .kicker { font-size: 10px; letter-spacing: .34em; text-transform: uppercase; color: #72B2D5; }
+  #project-panel h2 { margin: 4px 0 2px; font-size: 26px; letter-spacing: .08em; font-weight: 800; }
+  #project-panel .tag { color: #4AABCC; font-size: 13.5px; font-weight: 600; letter-spacing: .04em; }
+  #project-panel p { margin: 8px 0 10px; font-size: 13.5px; line-height: 1.55; color: #DCEEF6; }
+  #project-panel .stack { font-size: 11px; letter-spacing: .14em; color: #B3D3E0; text-transform: uppercase; }
+  @media (pointer: coarse) { #project-panel { bottom: 168px; } }
+</style>
+</head>
+<body>
+<div id="veil"><div class="t">Merugu</div><div class="s">launching the boat…</div></div>
+<div id="project-panel" aria-live="polite">
+  <div class="kicker">Project · Docked</div>
+  <h2>IMPERIUM</h2>
+  <div class="tag">Multi-AI-Agent Command System</div>
+  <p>One command, many agents. Specialised AI agents work as one crew — the Job Agent discovers jobs, generates tailored resumes and runs application workflows end-to-end, while Resume Studio builds ATS-friendly resumes matched to each job description.</p>
+  <div class="stack">Python · FastAPI · React · PostgreSQL · Supabase · Selenium</div>
+</div>
+<script type="importmap">{"imports":{
+  "three":"./lib/three.module.js",
+  "three/addons/":"./lib/addons/",
+  "three/examples/jsm/":"./lib/addons/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+import { MeshoptDecoder } from './lib/addons/libs/meshopt_decoder.module.js';
+import { U, UNIFORMS_GLSL, NOISE, ATMOS, patch } from './lib/sakura/shared.js';
+import { createBoatman } from './lib/sakura/figures.js';
+import { Water } from './lib/addons/objects/Water.js';
+import { RGBELoader } from './lib/addons/loaders/RGBELoader.js';
+const LAYER_WATER = 1;
+
+window.__boatStatus = 'loading';
+
+/* ================= renderer / scene / camera ================= */
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.22;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 6000);
+camera.layers.enable(LAYER_WATER);           // layer 0 (boat, sky) + layer 1 (water)
+camera.position.set(-9, 3.2, -10);
+scene.add(camera);
+
+/* ================= the day state (shared Sakura uniforms) =================
+   One calm blue-grey day, sun warm from the side; these uniforms drive the
+   water, the sky and the boat's patched materials together. */
+const SUN_DIR = new THREE.Vector3(0.45, 0.62, 0.30).normalize();
+U.uSunDir.value.copy(SUN_DIR); U.uTrueSun.value.copy(SUN_DIR); U.uMoonDir.value.copy(SUN_DIR);
+U.uSunCol.value.set(3.3, 3.0, 2.5);
+U.uSkyZen.value.set(0.17, 0.40, 0.85); U.uSkyHor.value.set(0.68, 0.80, 0.95);
+U.uAmbUp.value.set(0.58, 0.66, 0.74); U.uAmbDown.value.set(0.16, 0.15, 0.13);
+U.uFogSun.value.set(1.0, 0.86, 0.64); U.uFogAway.value.set(0.58, 0.70, 0.86);
+U.uFogParams.value.set(0.0011, 0.010, 0.030, 0);   // haze so the sheet's far edge melts into the sky
+U.uMist.value = 0.35; U.uLampOn.value = 1; U.uSeason.value.set(0, 0, 0, 0);
+U.uWind.value.set(0.6, -0.8, 0.5, 0);
+U.uLampPos.value[0].set(0, -999, 0, 7); U.uLampCol.value[0].set(2.2, 1.1, 0.4);  // the boat's lantern
+
+/* lights for the boat's standard materials (the water and sky are shaders) */
+scene.add(new THREE.HemisphereLight(0xbfd9ea, 0x2e4a66, 0.95));
+const sun = new THREE.DirectionalLight(0xfff1da, 2.3);
+sun.position.copy(SUN_DIR).multiplyScalar(90);
+scene.add(sun);
+
+/* ================= sky: FOLIO'S OWN SKY, used directly =================
+   The exact HDRI folio loads — Poly Haven kloofendal_48d_partly_cloudy
+   (CC0), assets/sky.hdr — on a backside sphere, tone mapping off, at
+   folio's day rotation; it also lights the scene as the environment. */
+const skyTex = new RGBELoader().load('./assets/sky.hdr', t => {
+  t.mapping = THREE.EquirectangularReflectionMapping;
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromEquirectangular(t).texture;
+});
+const sky = new THREE.Mesh(
+  new THREE.SphereGeometry(2800, 64, 64),
+  new THREE.MeshBasicMaterial({ side: THREE.BackSide, toneMapped: false, map: skyTex, fog: false })
+);
+sky.rotation.y = Math.PI / 2.6;   // folio's day-mode rotation
+sky.frustumCulled = false;
+scene.add(sky);
+
+/* ================= water: FOLIO'S WATER assets + values =================
+   three's classic mirror Water wearing folio's own waternormals.jpeg and
+   folio's settings (2048 reflection, distortionScale 3, timeScale 0.5). */
+const waterNormals = new THREE.TextureLoader().load('./assets/waternormals.jpeg', t => {
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+});
+const waterMesh = new Water(new THREE.PlaneGeometry(2400, 2400), {
+  textureWidth: 2048, textureHeight: 2048,
+  waterNormals,
+  sunDirection: SUN_DIR.clone(), sunColor: 0xffffff,
+  waterColor: 0x0a4a7a, distortionScale: 3, fog: false,
+});
+waterMesh.rotation.x = -Math.PI / 2;
+waterMesh.material.uniforms.size.value = 2.5;
+scene.add(waterMesh);
+/* Stubs for the wake bookkeeping in step() — the classic water has no wake
+   uniforms; the writes land here harmlessly. reflection is gone too: the
+   classic Water renders its own mirror pass internally. */
+const water = { uniforms: {
+  uWake: { value: Array.from({ length: 16 }, () => new THREE.Vector4(0, -99999, -1e3, 0)) },
+  uEddy: { value: Array.from({ length: 8 }, () => new THREE.Vector4(0, -99999, -1e3, 0)) },
+  uOar: { value: new THREE.Vector4(0, -99999, 0, -99999) },
+  uBoatInv: { value: new THREE.Matrix4() },
+  uRes: { value: new THREE.Vector2(1, 1) },
+} };
+const reflection = null;
+
+/* ================= the boat (Sakura tomabune + boatman) ================= */
+const glowC = document.createElement('canvas'); glowC.width = glowC.height = 128;
+{
+  const gx = glowC.getContext('2d'), grd = gx.createRadialGradient(64, 64, 2, 64, 64, 64);
+  grd.addColorStop(0, 'rgba(255,150,50,.85)'); grd.addColorStop(.4, 'rgba(255,110,30,.28)'); grd.addColorStop(1, 'rgba(255,110,30,0)');
+  gx.fillStyle = grd; gx.fillRect(0, 0, 128, 128);
+}
+const glowTex = new THREE.CanvasTexture(glowC);
+
+function boatMaterial(m) { // from Sakura boat.js: wet dark band below the waterline (y = 0 here)
+  m.aoMapIntensity = 0.75;
+  patch(m, { key: 'boat-' + m.name, snow: m.name.includes('toma') || m.name.includes('straw') ? 1.2 : 1, wet: 0.8,
+    hooks: { map: `{ vec3 nw=inverseTransformDirection(normalize(vNormal),viewMatrix);
+        vec2 rt=vec2(cos(uBoat.z),-sin(uBoat.z));
+        float out_=max(step(0.3,dot(nw.xz,rt)*sign(dot(vSfWP.xz-uBoat.xy,rt))),step(0.5,-nw.y));
+        float wl=smoothstep(0.09,-0.03,vSfWP.y)*out_;
+        diffuseColor.rgb*=mix(vec3(1.0),vec3(0.4,0.46,0.36),wl); sfHullWet=wl; }`,
+      normal: 'roughnessFactor = mix(roughnessFactor, roughnessFactor * 0.4, sfHullWet);' },
+    fragHead: 'float sfHullWet = 0.0;' });
+  return m;
+}
+function paperMaterial(m) { // from Sakura boat.js: lit washi, the flame glows through
+  patch(m, { key: 'boat-paper', snow: 0.3, wet: 0.4,
+    hooks: { preLight: `{ float tr=dot(diffuseColor.rgb,vec3(0.3333));
+        float g=uLampOn*smoothstep(0.25,0.7,tr);
+        diffuseColor.rgb=mix(diffuseColor.rgb,diffuseColor.rgb*0.4,uLampOn*0.6);
+        totalEmissiveRadiance+=vec3(1.0,0.52,0.2)*g*2.6*(0.88+0.12*sin(uTime*7.0+vSfWP.x*3.0)); }` } });
+  return m;
+}
+
+const boatState = {
+  pos: new THREE.Vector3(0, 0, 0), heading: 2.6, speed: 0,
+  driving: false, turnLean: 0, pitch: 0,
+};
+window.__boatState = boatState;
+
+const boatG = new THREE.Group();
+scene.add(boatG);
+let broot = null, oarPivot = null, man = null, rowerG = null, boatLampLight = null, boatReady = false, boatPhase = 0;
+const ROWER = new THREE.Vector3(-0.03, -0.0355, -3.12);
+const GRIPV = new THREE.Vector3(0, 0.4, 0.93), LOOMV = new THREE.Vector3(0, 0.28, 0.66);
+const _g = new THREE.Vector3(), _g2 = new THREE.Vector3(), _gw = new THREE.Vector3(), _gw2 = new THREE.Vector3(), _fwd = new THREE.Vector3();
+const _qr = new THREE.Quaternion(), _qHands = new THREE.Quaternion(), _bw = new THREE.Vector3();
+
+async function loadBoat() {
+  const ktx2 = new KTX2Loader().setTranscoderPath('./lib/basis/').detectSupport(renderer);
+  const gltf = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
+  const [bg, mg] = await Promise.all([
+    gltf.loadAsync('./boat/boat.glb'),
+    gltf.loadAsync('./boat/boatman.glb')
+  ]);
+  broot = new THREE.Group(); boatG.add(broot);
+  const src = bg.scene;
+  src.traverse(o => { if (o.isMesh) { o.userData.boatPart = true; o.frustumCulled = false;
+    if (o.material.name === 'paper') paperMaterial(o.material); else boatMaterial(o.material); } });
+  const hullNode = src.getObjectByName('hull'), roNode = src.getObjectByName('ro'), lanternNode = src.getObjectByName('lantern');
+  broot.add(hullNode, lanternNode);
+  oarPivot = new THREE.Group(); oarPivot.add(roNode); oarPivot.position.set(0.42, 0.62, -3.85); broot.add(oarPivot);
+  rowerG = new THREE.Group(); rowerG.position.copy(ROWER); rowerG.rotation.y = 1.25; broot.add(rowerG);
+  try {
+    man = createBoatman(mg.scene);
+    rowerG.add(man.root);
+  } catch (e) {
+    /* A visible human matters more than the rowing animation: if the IK
+       solver ever fails on a device, mount the figure as-is, statically. */
+    console.warn('[prabha1] boatman solver failed — static figure fallback', e);
+    man = null;
+    rowerG.add(mg.scene);
+  }
+  /* Skinned figure meshes carry a bind-pose bounding sphere; never let the
+     moving camera frustum-cull him out of his own boat. */
+  mg.scene.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
+  if (lanternNode) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.8 }));
+    sp.scale.set(9, 9, 1); lanternNode.add(sp);
+    boatLampLight = new THREE.PointLight(0xff9440, 1.2, 3, 2); lanternNode.add(boatLampLight);
+  }
+  boatReady = true;
+  window.__boatStatus = 'loaded';
+  document.getElementById('veil').classList.add('gone');
+}
+
+/* ================= input: keyboard, drag-look, wheel zoom, touch ================= */
+const keys = { fwd: false, rev: false, left: false, right: false };
+const chase = { init: false, pos: new THREE.Vector3(), look: new THREE.Vector3() };
+function engage() {
+  if (!boatState.driving) {
+    boatState.driving = true;
+    chase.init = false;
+    const hint = document.getElementById('hint');
+    if (hint) hint.style.opacity = '0.35';
+    console.log('[prabha1] driving engaged');
+  }
+}
+const KEYMAP = { KeyW: 'fwd', ArrowUp: 'fwd', KeyS: 'rev', ArrowDown: 'rev', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right' };
+window.addEventListener('keydown', e => {
+  const k = KEYMAP[e.code];
+  if (!k) return;
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+  keys[k] = true; engage();
+  e.preventDefault();
+});
+window.addEventListener('keyup', e => { const k = KEYMAP[e.code]; if (k) keys[k] = false; });
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+/* drag = look around (never scrolls the page: the page cannot scroll) */
+const view = { yaw: 0, pitch: 0, dist: 10.5 };
+{
+  const el = renderer.domElement;
+  let dragging = false, lx = 0, ly = 0;
+  el.addEventListener('pointerdown', e => {
+    dragging = true; lx = e.clientX; ly = e.clientY;
+    try { el.setPointerCapture(e.pointerId); } catch (err) { /* older engines */ }
+  });
+  el.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    view.yaw -= (e.clientX - lx) * 0.0052;
+    view.pitch = THREE.MathUtils.clamp(view.pitch + (e.clientY - ly) * 0.004, -0.35, 0.9);
+    lx = e.clientX; ly = e.clientY;
+  });
+  const end = () => { dragging = false; };
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+  el.addEventListener('wheel', e => {
+    e.preventDefault();
+    view.dist = THREE.MathUtils.clamp(view.dist * Math.exp(e.deltaY * 0.001), 7, 18);
+  }, { passive: false });
+  el.addEventListener('contextmenu', e => { e.preventDefault(); });
+}
+/* belt and braces: no gesture may scroll or zoom the page itself */
+document.addEventListener('touchmove', e => { e.preventDefault(); }, { passive: false });
+document.addEventListener('gesturestart', e => { e.preventDefault(); });
+
+function buildTouchUI() {
+  if (document.getElementById('boat-touch')) return;
+  const wrap = document.createElement('div');
+  wrap.id = 'boat-touch';
+  wrap.style.cssText = 'position:fixed;left:0;right:0;bottom:calc(18px + env(safe-area-inset-bottom, 0px));z-index:99999;display:flex;justify-content:space-between;padding:0 18px;pointer-events:none;font-family:Georgia,serif;touch-action:none;';
+  const mk = (label, key) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.setAttribute('aria-label', 'boat ' + key);
+    b.style.cssText = 'pointer-events:auto;width:58px;height:58px;border-radius:50%;border:1px solid rgba(255,255,255,.35);background:rgba(10,18,28,.42);color:#eaf2f8;font-size:22px;backdrop-filter:blur(3px);touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;';
+    /* One held-set per button, fed by BOTH pointer events and raw touch
+       events, released only when every pointer/touch holding it is gone —
+       the pattern that finally worked on the real phone (no pointerleave
+       releases, explicit capture, gestures blocked on the button itself).
+       Multi-touch works: hold ▲ and ◀ together. */
+    const held = new Set();
+    const sync = () => { keys[key] = held.size > 0; if (keys[key]) engage(); };
+    b.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      try { b.setPointerCapture(e.pointerId); } catch (err) { /* older engines */ }
+      held.add('p' + e.pointerId); sync();
+    });
+    const release = e => { held.delete('p' + e.pointerId); sync(); };
+    b.addEventListener('pointerup', release);
+    b.addEventListener('pointercancel', release);
+    b.addEventListener('touchstart', e => {
+      e.preventDefault(); e.stopPropagation();
+      for (const t of e.changedTouches) held.add('t' + t.identifier);
+      sync();
+    }, { passive: false });
+    const tend = e => {
+      e.preventDefault();
+      for (const t of e.changedTouches) held.delete('t' + t.identifier);
+      sync();
+    };
+    b.addEventListener('touchend', tend, { passive: false });
+    b.addEventListener('touchcancel', tend, { passive: false });
+    b.addEventListener('touchmove', e => { e.preventDefault(); }, { passive: false });
+    b.addEventListener('contextmenu', e => { e.preventDefault(); });
+    return b;
+  };
+  const left = document.createElement('div');
+  left.style.cssText = 'display:flex;gap:12px;';
+  left.append(mk('◀', 'left'), mk('▶', 'right'));
+  const right = document.createElement('div');
+  right.style.cssText = 'display:flex;gap:12px;';
+  right.append(mk('▲', 'fwd'), mk('▼', 'rev'));
+  wrap.append(left, right);
+  document.body.appendChild(wrap);
+}
+/* Show the touch controls on any device that can touch — and regardless of
+   detection, build them the first time a real touch lands anywhere. */
+function armTouchUI() {
+  const coarse = (window.matchMedia && matchMedia('(pointer: coarse)').matches)
+    || ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+  if (coarse) { buildTouchUI(); return; }
+  window.addEventListener('touchstart', function once() {
+    window.removeEventListener('touchstart', once);
+    buildTouchUI();
+  }, { capture: true, passive: true });
+}
+{
+  const hint = document.createElement('div');
+  hint.id = 'hint';
+  const coarse = (window.matchMedia && matchMedia('(pointer: coarse)').matches) || navigator.maxTouchPoints > 0;
+  hint.textContent = coarse ? '🛶  Touch the arrows — drive · sail to the iceberg' : '🛶  Drive: WASD / arrows / touch — sail to the iceberg';
+  document.body.appendChild(hint);
+  armTouchUI();
+}
+
+/* ================= wake / oar state for the water ================= */
+const WAKE_STEP = 4.5, BOW_Z = 2.6;
+const wake = Array.from({ length: 16 }, () => new THREE.Vector4(0, -99999, -1e3, 0));
+const eddies = Array.from({ length: 8 }, () => new THREE.Vector4(0, -99999, -1e3, 0));
+let eddyI = 0, lastTurn = 0, odo = 0;
+const oarW = new THREE.Vector4(0, -99999, 0, -99999);
+const LOOM_TOP = new THREE.Vector3(0, 0, 0), LOOM_KNEE = new THREE.Vector3(0, -0.6, -1.7),
+      LOOM_END = new THREE.Vector3(0, -1.25, -3.1), BLADE = new THREE.Vector3(0, -1.1, -2.8);
+const _oa = new THREE.Vector3(), _oe = new THREE.Vector3();
+const _m4 = new THREE.Matrix4(), _fwdV = new THREE.Vector3(), _desired = new THREE.Vector3(), _lookT = new THREE.Vector3();
+const BOUND_R = 700;   // soft open-water bound: speed bleeds off and the sheet is clamped at r = 700
+
+/* ================= per-frame ================= */
+const clock = new THREE.Clock();
+let wt = 0;
+window.__frames = 0;
+
+function step(dt, t) {
+  const S = boatState;
+  /* --- physics: throttle, drag, rudder (from the folio boat add-on) --- */
+  const accel = keys.fwd ? 2.4 : keys.rev ? -1.7 : 0;
+  S.speed += accel * dt;
+  S.speed -= S.speed * 0.55 * dt;
+  S.speed = THREE.MathUtils.clamp(S.speed, -2.5, 7.5);
+  if (!keys.fwd && !keys.rev && Math.abs(S.speed) < 0.02) S.speed = 0;
+  const turnIn = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+  const flow = THREE.MathUtils.clamp(S.speed / 3, -1, 1);
+  S.heading -= turnIn * 1.05 * flow * dt;
+  _fwdV.set(Math.sin(S.heading), 0, Math.cos(S.heading));
+  S.pos.addScaledVector(_fwdV, S.speed * dt);
+  /* --- soft round bound --- */
+  const rr = Math.hypot(S.pos.x, S.pos.z);
+  if (rr > BOUND_R) {
+    S.pos.multiplyScalar(BOUND_R / rr);
+    S.speed *= 0.94;
+  } else if (rr > BOUND_R - 40) {
+    S.speed *= 1 - 0.25 * dt * (1 - (BOUND_R - rr) / 40);
+  }
+  /* --- hull motion: bob, turn lean, throttle pitch --- */
+  S.turnLean += ((turnIn * THREE.MathUtils.clamp(Math.abs(S.speed) / 7, 0, 1) * 0.055) - S.turnLean) * Math.min(1, dt * 4);
+  S.pitch += (((keys.fwd ? -0.012 : keys.rev ? 0.01 : 0)) - S.pitch) * Math.min(1, dt * 3);
+  boatG.position.set(S.pos.x, Math.sin(t * 0.9) * 0.06 + Math.abs(S.speed) * 0.008, S.pos.z);
+  boatG.rotation.set(
+    Math.sin(t * 0.8 + 0.7) * 0.006 + S.pitch,
+    S.heading,
+    Math.sin(t * 0.7) * 0.008 - S.turnLean
+  );
+  boatG.updateMatrixWorld(true);
+
+  /* --- sculling rig + boatman (Sakura boat.js update, adapted) --- */
+  U.uTime.value = t;
+  if (boatReady && broot) {
+    const speed = 0.6 + Math.abs(S.speed) * 0.55;
+    boatPhase += dt * (0.65 + Math.min(speed, 8) * 0.12) * 2.2;
+    const sw = Math.sin(boatPhase);
+    oarPivot.rotation.set(0.04 * Math.sin(boatPhase * 2), 0.3 * sw, 0.28 * Math.cos(boatPhase), 'YXZ');
+    oarPivot.updateMatrix();
+    _g.copy(GRIPV).applyMatrix4(oarPivot.matrix);
+    _g2.copy(LOOMV).applyMatrix4(oarPivot.matrix);
+    const f = rowerG.rotation.y; _fwd.set(Math.sin(f), 0, Math.cos(f));
+    const hipShift = 0.05 * sw;
+    const ahead = (_g.x - ROWER.x) * _fwd.x + (_g.z - ROWER.z) * _fwd.z - hipShift;
+    const lean = Math.min(0.35, Math.max(-0.12, (ahead - 0.49) * 0.9));
+    broot.updateMatrixWorld(true);
+    broot.localToWorld(_gw.copy(_g)); broot.localToWorld(_gw2.copy(_g2));
+    broot.getWorldQuaternion(_qr);
+    _qHands.copy(_qr).multiply(oarPivot.quaternion).multiply(_qr.invert());
+    if (man) {
+      try {
+        man.pose({ shift: hipShift, dip: 0.015 * Math.abs(sw), lean, turn: 0.1 * sw, grips: [_gw, _gw2], hands: _qHands,
+          look: [-lean * 0.8 + 0.04 * Math.sin(t * 0.4), -0.95 + 0.25 * Math.sin(t * 0.13), 0] });
+      } catch (e) {
+        if (!step.poseWarned) { step.poseWarned = true; console.warn('[prabha1] boatman pose failed — keeping bind pose', e); }
+      }
+    }
+    /* lantern into the shared lamp slot (feeds the hull/paper patches AND the water's glint column) */
+    _bw.set(0, 1.82, 4.18).applyMatrix4(broot.matrixWorld);
+    U.uLampPos.value[0].set(_bw.x, _bw.y, _bw.z, 7);
+    if (boatLampLight) boatLampLight.intensity = 1.15 + Math.sin(t * 7.3) * 0.18;
+
+    /* --- oar + wake for the water shader (Sakura boat.js bookkeeping) --- */
+    const roNode = oarPivot.children[0];
+    if (roNode) {
+      roNode.updateWorldMatrix(true, false);
+      _oa.copy(LOOM_TOP).applyMatrix4(roNode.matrixWorld);
+      _oe.copy(LOOM_KNEE).applyMatrix4(roNode.matrixWorld);
+      if (_oe.y > 0) { _oa.copy(_oe); _oe.copy(LOOM_END).applyMatrix4(roNode.matrixWorld); }
+      const wet = _oa.y / Math.max(_oa.y - _oe.y, 1e-3);
+      oarW.x = _oa.x + (_oe.x - _oa.x) * wet;
+      oarW.y = _oa.z + (_oe.z - _oa.z) * wet;
+      _oe.copy(BLADE).applyMatrix4(roNode.matrixWorld);
+      oarW.z = _oe.x; oarW.w = _oe.z;
+      const turn = Math.sign(Math.cos(boatPhase));
+      if (turn !== lastTurn && lastTurn !== 0) {
+        eddies[eddyI].set(_oe.x, _oe.z, t, lastTurn);
+        eddyI = (eddyI + 1) % eddies.length;
+      }
+      lastTurn = turn;
+    }
+    odo += S.speed * dt;
+    const bx = S.pos.x + Math.sin(S.heading) * BOW_Z, bz = S.pos.z + Math.cos(S.heading) * BOW_Z;
+    if (Math.hypot(bx - wake[1].x, bz - wake[1].y) > WAKE_STEP * 4) {
+      for (const w of wake) w.set(bx, bz, t - 1e3, odo);
+    } else if (odo - wake[1].w >= WAKE_STEP) {
+      for (let i = wake.length - 1; i > 1; i--) wake[i].copy(wake[i - 1]);
+      wake[1].set(bx, bz, t, odo);
+    }
+    wake[0].set(bx, bz, t, odo);
+    for (let i = 0; i < 16; i++) water.uniforms.uWake.value[i].copy(wake[i]);
+    for (let i = 0; i < 8; i++) water.uniforms.uEddy.value[i].copy(eddies[i]);
+    water.uniforms.uOar.value.copy(oarW);
+  }
+  /* hull data for the water + the patched boat materials */
+  _m4.makeRotationY(S.heading).setPosition(S.pos.x, 0, S.pos.z);
+  water.uniforms.uBoatInv.value.copy(_m4).invert();
+  U.uBoat.value.set(S.pos.x, S.pos.z, S.heading, S.speed / 4);
+  U.uViewPos.value.copy(camera.position);
+
+  /* --- camera: idle drift orbit, chase while driving --- */
+  if (S.driving) {
+    if (!chase.init) { chase.pos.copy(camera.position); chase.look.copy(S.pos); chase.init = true; }
+    const ch = S.heading + view.yaw;
+    _desired.set(
+      S.pos.x - Math.sin(ch) * view.dist,
+      Math.max(1.7, 4.2 + view.pitch * 6),
+      S.pos.z - Math.cos(ch) * view.dist
+    );
+    chase.pos.lerp(_desired, 1 - Math.exp(-2.8 * dt));
+    camera.position.copy(chase.pos);
+    _lookT.copy(S.pos); _lookT.y = 1.2;
+    chase.look.lerp(_lookT, 1 - Math.exp(-4 * dt));
+    camera.lookAt(chase.look);
+  } else {
+    const a = 0.85 + t * 0.045 + view.yaw;
+    const r = view.dist + 1.0;
+    camera.position.set(
+      S.pos.x + Math.sin(a) * r,
+      Math.max(1.7, 3.1 + view.pitch * 6),
+      S.pos.z + Math.cos(a) * r
+    );
+    _lookT.copy(S.pos); _lookT.y = 1.1;
+    camera.lookAt(_lookT);
+  }
+  camera.updateMatrixWorld();
+}
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  const db = renderer.getDrawingBufferSize(new THREE.Vector2());
+  water.uniforms.uRes.value.set(db.x, db.y);
+  if (reflection) {
+    const scale = Math.min(1, 2048 / Math.max(db.x, db.y));
+    reflection.setSize(Math.max(2, Math.round(db.x * scale)), Math.max(2, Math.round(db.y * scale)));
+  }
+}
+addEventListener('resize', resize);
+resize();
+
+/* ================= PORTFOLIO WORLD (sample) =================
+   Added on top of the proven Prabha1 water+boat scene — nothing above was
+   changed. Arctic Ice palette only: navy #0D3050, bright #4AABCC, photo
+   #72B2D5, pale ice #B3D3E0 / #DCEEF6, snow #F4FAFD.
+   Layout: boat spawns at origin, bow toward +x/-z (heading 2.6).
+   Hero dock sits beside the spawn; the IMPERIUM iceberg waits ~60 units
+   down the sailing line; tool buoys mark the route between them. */
+const ICE_POS = new THREE.Vector3(31, 0, -51);
+const NAVY = 0x0D3050, BRIGHT = 0x4AABCC, PHOTO = 0x72B2D5, PALE = 0xB3D3E0, ICEC = 0xDCEEF6;
+
+function makeLabelTexture(w, h, draw) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+
+/* ---------- hero dock ---------- */
+const dock = new THREE.Group();
+dock.position.set(8.5, 0, 9);
+dock.lookAt(0, 0, 0);              // local +z faces the boat spawn
+scene.add(dock);
+{
+  const wood = new THREE.MeshStandardMaterial({ color: 0x77572f, roughness: 0.9 });
+  const woodDark = new THREE.MeshStandardMaterial({ color: 0x54391d, roughness: 0.95 });
+  for (let i = 0; i < 12; i++) {   // plank deck, top at y = 0.55
+    const shade = 0.92 + ((i * 37) % 10) / 60;
+    const m = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.16, 3.4),
+      new THREE.MeshStandardMaterial({ color: new THREE.Color(0x77572f).multiplyScalar(shade), roughness: 0.9 }));
+    m.position.set(-5.7 + i * 1.04, 0.47, 0);
+    dock.add(m);
+  }
+  for (const bx of [-5.2, 5.2]) {  // under-beams
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 3.5), woodDark);
+    beam.position.set(bx, 0.28, 0); dock.add(beam);
+  }
+  for (const px of [-5.9, -2, 2, 5.9]) for (const pz of [-1.5, 1.5]) {  // posts into the water
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.18, 2.4, 8), woodDark);
+    post.position.set(px, -0.5, pz); dock.add(post);
+  }
+  /* MERUGU sign board */
+  const signTex = makeLabelTexture(1024, 512, (g, w, h) => {
+    g.fillStyle = '#0D3050'; g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#4AABCC'; g.lineWidth = 10; g.strokeRect(16, 16, w - 32, h - 32);
+    g.textAlign = 'center'; g.fillStyle = '#F4FAFD';
+    g.font = '900 148px Arial, sans-serif';
+    g.fillText('MERUGU', w / 2, 218);
+    g.fillStyle = '#4AABCC'; g.fillRect(w / 2 - 190, 262, 380, 8);
+    g.font = '600 55px Arial, sans-serif'; g.fillStyle = '#B3D3E0';
+    g.fillText('AI Builder & Vibe Coder', w / 2, 368);
+    g.font = '400 34px Arial, sans-serif'; g.fillStyle = '#72B2D5';
+    g.fillText('3D PORTFOLIO — SAIL TO EXPLORE', w / 2, 440);
+  });
+  const sign = new THREE.Group(); sign.position.set(-3.4, 0.55, 0.9); dock.add(sign);
+  for (const px of [-2.7, 2.7]) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 3.6, 8), woodDark);
+    post.position.set(px, 1.8, 0); sign.add(post);
+  }
+  const signBack = new THREE.Mesh(new THREE.BoxGeometry(6.6, 3.1, 0.16),
+    new THREE.MeshStandardMaterial({ color: NAVY, roughness: 0.7 }));
+  signBack.position.y = 3.3; sign.add(signBack);
+  const signFace = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 3.0),
+    new THREE.MeshBasicMaterial({ map: signTex }));
+  signFace.position.set(0, 3.3, 0.1); sign.add(signFace);
+  /* portrait slab */
+  const slab = new THREE.Group(); slab.position.set(3.2, 0.55, 0.9); slab.rotation.x = -0.05; dock.add(slab);
+  const pPost = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 1.1, 8), woodDark);
+  pPost.position.y = 0.55; slab.add(pPost);
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(2.7, 3.5, 0.14),
+    new THREE.MeshStandardMaterial({ color: NAVY, roughness: 0.6 }));
+  frame.position.y = 2.9; slab.add(frame);
+  const portrait = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 3.2),
+    new THREE.MeshBasicMaterial({ map: new THREE.TextureLoader().load('./img/merugu-portrait.jpg', t => { t.colorSpace = THREE.SRGBColorSpace; }) }));
+  portrait.position.set(0, 2.9, 0.09); slab.add(portrait);
+  /* folio japanese lanterns at the deck ends — best effort, non-fatal */
+  new GLTFLoader().loadAsync('./models/japanese_lantern.glb').then(gltf => {
+    const proto = gltf.scene;
+    const box = new THREE.Box3().setFromObject(proto);
+    const size = box.getSize(new THREE.Vector3());
+    const s = 2.4 / Math.max(size.y, 0.001);
+    for (const lx of [-6.1, 6.1]) {
+      const inst = proto.clone();
+      inst.scale.setScalar(s);
+      inst.position.set(lx, 0.55 - box.min.y * s, 1.2);
+      dock.add(inst);
+    }
+  }).catch(e => console.warn('[portfolio] lantern skipped', e));
+}
+
+/* ---------- IMPERIUM iceberg ---------- */
+const iceberg = new THREE.Group();
+iceberg.position.copy(ICE_POS);
+scene.add(iceberg);
+function iceRock(r, seed) {
+  const geo = new THREE.IcosahedronGeometry(r, 2);
+  const p = geo.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    const d = 1 + 0.17 * Math.sin(v.x * 0.55 + seed) * Math.cos(v.z * 0.5 + seed * 1.7)
+              + 0.11 * Math.sin(v.y * 0.8 + seed * 0.6);
+    v.multiplyScalar(d); p.setXYZ(i, v.x, v.y, v.z);
+  }
+  geo.computeVertexNormals();
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    color: ICEC, roughness: 0.38, metalness: 0.02, flatShading: true }));
+  return m;
+}
+{
+  const main = iceRock(11, 1.3); main.scale.set(1, 0.62, 1); main.position.y = 1.4; iceberg.add(main);
+  const c1 = iceRock(4.5, 4.1); c1.scale.set(1, 0.6, 1); c1.position.set(9.5, 0.2, 4.5); iceberg.add(c1);
+  const c2 = iceRock(3.4, 7.7); c2.scale.set(1, 0.6, 1); c2.position.set(-9, 0.1, 6); iceberg.add(c2);
+  const skirt = new THREE.Mesh(new THREE.CylinderGeometry(13.5, 16, 1.1, 7),
+    new THREE.MeshStandardMaterial({ color: PALE, roughness: 0.5, flatShading: true }));
+  skirt.position.y = 0.05; iceberg.add(skirt);
+  /* screen + name board, facing back toward the dock */
+  const face = new THREE.Group();
+  face.position.set(-6.4, 0, 10.6);                   // spawn-facing slope of the berg
+  face.rotation.y = Math.atan2(-ICE_POS.x, -ICE_POS.z);   // +z points back at the dock
+  iceberg.add(face);
+  const scr = new THREE.Group(); scr.position.set(0, 5.4, 0); scr.rotation.x = -0.05; face.add(scr);
+  const scrFrame = new THREE.Mesh(new THREE.BoxGeometry(11.9, 7.1, 0.35),
+    new THREE.MeshStandardMaterial({ color: NAVY, roughness: 0.55 }));
+  scr.add(scrFrame);
+  const scrFace = new THREE.Mesh(new THREE.PlaneGeometry(11.3, 6.5),
+    new THREE.MeshBasicMaterial({ map: new THREE.TextureLoader().load('./img/imperium-main.jpg', t => { t.colorSpace = THREE.SRGBColorSpace; }) }));
+  scrFace.position.z = 0.2; scr.add(scrFace);
+  const boardTex = makeLabelTexture(1024, 256, (g, w, h) => {
+    g.fillStyle = '#0D3050'; g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#4AABCC'; g.lineWidth = 6; g.strokeRect(10, 10, w - 20, h - 20);
+    g.textAlign = 'center'; g.fillStyle = '#F4FAFD';
+    g.font = '800 96px Arial, sans-serif'; g.fillText('IMPERIUM', w / 2, 118);
+    g.font = '600 46px Arial, sans-serif'; g.fillStyle = '#4AABCC';
+    g.fillText('Multi-Agent Command System', w / 2, 198);
+  });
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(10, 2.5),
+    new THREE.MeshBasicMaterial({ map: boardTex }));
+  board.position.set(0, 1.5, 1.7); face.add(board);
+  const glow = new THREE.PointLight(BRIGHT, 140, 55, 1.8);
+  glow.position.set(0, 5, 7); face.add(glow);
+}
+/* destination glow ring on the water */
+const ring = new THREE.Mesh(new THREE.RingGeometry(16.5, 18.6, 48),
+  new THREE.MeshBasicMaterial({ color: BRIGHT, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false }));
+ring.rotation.x = -Math.PI / 2;
+ring.position.set(ICE_POS.x, 0.07, ICE_POS.z);
+scene.add(ring);
+
+/* ---------- tools buoys along the route ---------- */
+const buoys = [];
+{
+  const labels = ['Python', 'FastAPI', 'React', 'TypeScript', 'Next.js', 'PostgreSQL'];
+  const fwd = new THREE.Vector2(Math.sin(2.6), Math.cos(2.6));       // sailing line
+  const perp = new THREE.Vector2(fwd.y, -fwd.x);
+  labels.forEach((label, i) => {
+    const t = 0.14 + i * 0.16;
+    const side = (i % 2 === 0 ? 1 : -1) * 3.2;
+    const g = new THREE.Group();
+    g.position.set(fwd.x * 60 * t + perp.x * side, 0, fwd.y * 60 * t + perp.y * side);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.55, 1.1, 10),
+      new THREE.MeshStandardMaterial({ color: NAVY, roughness: 0.5 }));
+    body.position.y = 0.35; g.add(body);
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 10),
+      new THREE.MeshStandardMaterial({ color: BRIGHT, emissive: BRIGHT, emissiveIntensity: 2.2 }));
+    tip.position.y = 1.15; g.add(tip);
+    const tex = makeLabelTexture(512, 128, (gc, w, h) => {
+      gc.fillStyle = 'rgba(13,48,80,0.88)';
+      gc.fillRect(6, 14, w - 12, h - 28);
+      gc.strokeStyle = '#4AABCC'; gc.lineWidth = 4;
+      gc.strokeRect(6, 14, w - 12, h - 28);
+      gc.textAlign = 'center'; gc.fillStyle = '#F4FAFD';
+      gc.font = '700 54px Arial, sans-serif';
+      gc.fillText(label, w / 2, h / 2 + 20);
+    });
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+    spr.scale.set(4.8, 1.2, 1); spr.position.y = 2.1; g.add(spr);
+    g.userData.phase = i * 1.13;
+    scene.add(g); buoys.push(g);
+  });
+}
+
+const projectPanel = document.getElementById('project-panel');
+function updateWorld(t) {
+  iceberg.position.y = Math.sin(t * 0.45) * 0.18;
+  iceberg.rotation.z = Math.sin(t * 0.3) * 0.006;
+  iceberg.rotation.x = Math.cos(t * 0.26) * 0.005;
+  ring.material.opacity = 0.32 + 0.16 * Math.sin(t * 1.4);
+  for (const b of buoys) {
+    b.position.y = Math.sin(t * 1.1 + b.userData.phase) * 0.13;
+    b.rotation.z = Math.sin(t * 0.9 + b.userData.phase) * 0.05;
+    b.rotation.x = Math.cos(t * 0.8 + b.userData.phase) * 0.04;
+  }
+  const d = Math.hypot(boatState.pos.x - ICE_POS.x, boatState.pos.z - ICE_POS.z);
+  projectPanel.classList.toggle('show', d < 14);
+}
+window.__icePos = ICE_POS;
+
+loadBoat().catch(e => {
+  window.__boatStatus = 'load-failed';
+  console.error('[prabha1] boat load failed', e);
+  const s = document.querySelector('#veil .s');
+  if (s) s.textContent = 'the boat could not be loaded — ' + (e && e.message ? e.message : e);
+});
+
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  wt += dt;
+  step(dt, wt);
+  updateWorld(wt);
+  waterMesh.material.uniforms.time.value += dt * 0.5;   // folio's timeScale
+  renderer.render(scene, camera);
+  window.__frames++;
+});
+</script>
+</body>
+</html>
