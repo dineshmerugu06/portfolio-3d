@@ -47,6 +47,11 @@
   #project-panel p { margin: 8px 0 10px; font-size: 13.5px; line-height: 1.55; color: #DCEEF6; }
   #project-panel .stack { font-size: 11px; letter-spacing: .14em; color: #B3D3E0; text-transform: uppercase; }
   @media (pointer: coarse) { #project-panel { bottom: 168px; } }
+  #credit { position: fixed; right: 12px; bottom: 10px; z-index: 9997; pointer-events: none;
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 11px; letter-spacing: .05em;
+    color: rgba(220, 238, 246, .78); background: rgba(13, 48, 80, .45);
+    border: 1px solid rgba(179, 211, 224, .3); padding: 4px 10px; border-radius: 999px; }
+  @media (pointer: coarse) { #credit { bottom: 92px; } }
 </style>
 </head>
 <body>
@@ -58,6 +63,7 @@
   <p>One command, many agents. Specialised AI agents work as one crew — the Job Agent discovers jobs, generates tailored resumes and runs application workflows end-to-end, while Resume Studio builds ATS-friendly resumes matched to each job description.</p>
   <div class="stack">Python · FastAPI · React · PostgreSQL · Supabase · Selenium</div>
 </div>
+<div id="credit">Chinese dragon by ok100 — CC BY</div>
 <script type="importmap">{"imports":{
   "three":"./lib/three.module.js",
   "three/addons/":"./lib/addons/",
@@ -713,6 +719,66 @@ function updateWorld(t) {
 }
 window.__icePos = ICE_POS;
 
+/* ================= CHINESE DRAGON (Sketchfab — ok100, CC BY) =================
+   An animated dragon circling high over the sailing route. Loaded LAST —
+   only after the boat reports in and the scene is interactive — and fully
+   non-fatal: if the load fails, the world below simply has no dragon. */
+const DRAGON_HEADING_OFFSET = 0;   /* if the dragon ever flies tail-first on the phone check, flip this to Math.PI — one-line fix */
+const DRAGON_CENTER = new THREE.Vector3(ICE_POS.x / 2, 0, ICE_POS.z / 2);  // midway between the dock and the iceberg
+const DRAGON_R = 82, DRAGON_H = 43, DRAGON_OMEGA = (Math.PI * 2) / 70;     // one lap ≈ 70 s
+let dragonG = null, dragonMixer = null, dragonPrevT = -1;
+const _dNext = new THREE.Vector3();
+
+async function loadDragon() {
+  /* don't fight the boat for bandwidth: wait until it is in the water */
+  for (let i = 0; i < 900 && window.__boatStatus !== 'loaded'; i++)
+    await new Promise(r => setTimeout(r, 100));
+  const ktx2 = new KTX2Loader().setTranscoderPath('./lib/basis/').detectSupport(renderer);
+  const gltf = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
+  const dg = await gltf.loadAsync('./models/chinese_dragon.glb');
+  const model = dg.scene;
+  model.traverse(o => { if (o.isMesh) o.frustumCulled = false; });   // it crosses the whole sky — never cull it
+  /* normalise: longest axis -> ~30 units, bounding-box centre -> group origin */
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const s = 30 / Math.max(size.x, size.y, size.z, 0.001);
+  const centre = box.getCenter(new THREE.Vector3());
+  model.scale.setScalar(s);
+  model.position.copy(centre).multiplyScalar(-s);
+  dragonG = new THREE.Group();
+  dragonG.add(model);
+  scene.add(dragonG);
+  if (dg.animations && dg.animations.length) {
+    dragonMixer = new THREE.AnimationMixer(model);
+    dragonMixer.clipAction(dg.animations[0]).play();   // LoopRepeat is the default
+  }
+  window.__dragonStatus = 'flying';
+  console.log('[portfolio] dragon in the sky');
+}
+loadDragon().catch(e => { window.__dragonStatus = 'skipped'; console.warn('[portfolio] dragon skipped', e); });
+
+function updateDragon(t) {
+  if (!dragonG) return;
+  const dt = dragonPrevT < 0 ? 0 : Math.min(t - dragonPrevT, 0.05);
+  dragonPrevT = t;
+  if (dragonMixer) dragonMixer.update(dt);
+  const a = t * DRAGON_OMEGA;
+  dragonG.position.set(
+    DRAGON_CENTER.x + Math.cos(a) * DRAGON_R,
+    DRAGON_H + Math.sin(t * 0.45) * 2.2,
+    DRAGON_CENTER.z + Math.sin(a) * DRAGON_R
+  );
+  const a2 = a + 0.02;   // a point a moment further along the circle
+  _dNext.set(
+    DRAGON_CENTER.x + Math.cos(a2) * DRAGON_R,
+    DRAGON_H + Math.sin((t + 0.25) * 0.45) * 2.2,
+    DRAGON_CENTER.z + Math.sin(a2) * DRAGON_R
+  );
+  dragonG.lookAt(_dNext);               // object +z toward travel
+  dragonG.rotateY(DRAGON_HEADING_OFFSET);
+  dragonG.rotateZ(0.30);                // gentle bank into the turn
+}
+
 loadBoat().catch(e => {
   window.__boatStatus = 'load-failed';
   console.error('[prabha1] boat load failed', e);
@@ -725,6 +791,7 @@ renderer.setAnimationLoop(() => {
   wt += dt;
   step(dt, wt);
   updateWorld(wt);
+  updateDragon(wt);
   waterMesh.material.uniforms.time.value += dt * 0.5;   // folio's timeScale
   renderer.render(scene, camera);
   window.__frames++;
