@@ -502,20 +502,50 @@ addEventListener('resize', resize);
 resize();
 
 /* ================= CHINESE DRAGON (Sketchfab — ok100, CC BY) =================
-   The dragon belongs to the boat now: it circles THE BOAT on the water,
-   skimming the surface right beside it. Each frame the flight circle's
-   centre eases after the boat's position, radius 26, height ~7 with a
-   gentle bob (band 5–9) — close enough to feel beside the boat, wide
-   enough that its ~30-unit body arcs AROUND the boat, never through it,
-   and always in the chase camera's view. Loading starts in parallel
-   with the scene and stays
-   fully non-fatal: if the load fails, the sea simply has no dragon. */
+   The dragon escorts THE BOAT on a boat-aligned racetrack: it runs ahead
+   along one side of the boat, rounds the front, comes back along the
+   other side passing near the boat, rounds the back, repeat — skimming
+   the water the whole way (height ~3, band ~1.8–4.2) so it passes
+   through the surface zone right beside the boat instead of circling
+   unseen overhead. The track's centre and heading ease after the boat,
+   so it swings smoothly when the boat turns. Loading starts in parallel
+   with the scene and stays fully non-fatal: if the load fails, the sea
+   simply has no dragon. */
 const DRAGON_HEADING_OFFSET = 0;   /* if the dragon ever flies tail-first on the phone check, flip this to Math.PI — one-line fix */
-const DRAGON_R = 26, DRAGON_H = 7, DRAGON_BOB = 2;   // height range 5 … 9 — clears the boat, body arcs around it
-const DRAGON_OMEGA = (Math.PI * 2) / 16;               // one lap ≈ 16 s
+const DRAGON_OFF = 11;                          // lateral offset of the straights from the boat's axis
+const DRAGON_REACH = 48;                        // straights run from 48 behind the boat to 48 ahead
+const DRAGON_SPEED = 14;                        // units/s along the track — one lap ≈ 18–19 s
+const DRAGON_H = 3.0, DRAGON_BOB = 1.2;         // height band ~1.8 … 4.2 — skimming the water
+const DRAGON_STRAIGHT = DRAGON_REACH * 2;                   // 96
+const DRAGON_CAP = Math.PI * DRAGON_OFF;                    // semicircle arc ≈ 34.6
+const DRAGON_LAP = DRAGON_STRAIGHT * 2 + DRAGON_CAP * 2;    // ≈ 261.1
 let dragonG = null, dragonMixer = null, dragonT0 = -1;
-const _dCenter = new THREE.Vector3(0, 0, 0);   // eased circle centre — follows the boat
+let dragonS = DRAGON_REACH;   // arc-length position — starts abeam of the boat on the forward straight, in the camera's forward view
+let dragonHeading = null, dragonBank = 0;
+const _dCenter = new THREE.Vector3(0, 0, 0);   // eased track centre — follows the boat
 const _dNext = new THREE.Vector3();
+const _dLocal = new THREE.Vector2(), _dLocalN = new THREE.Vector2();
+
+/* One point of the racetrack in boat-local space (x = lateral, y = fore/aft).
+   Returns true while the point is on one of the end caps (for banking). */
+function dragonTrackPoint(s, out) {
+  s = ((s % DRAGON_LAP) + DRAGON_LAP) % DRAGON_LAP;
+  if (s < DRAGON_STRAIGHT) {                    // forward straight, starboard side
+    out.set(DRAGON_OFF, -DRAGON_REACH + s); return false;
+  }
+  s -= DRAGON_STRAIGHT;
+  if (s < DRAGON_CAP) {                         // front cap
+    const p = s / DRAGON_OFF;
+    out.set(DRAGON_OFF * Math.cos(p), DRAGON_REACH + DRAGON_OFF * Math.sin(p)); return true;
+  }
+  s -= DRAGON_CAP;
+  if (s < DRAGON_STRAIGHT) {                    // return straight, port side
+    out.set(-DRAGON_OFF, DRAGON_REACH - s); return false;
+  }
+  s -= DRAGON_STRAIGHT;                         // back cap
+  const p = s / DRAGON_OFF;
+  out.set(-DRAGON_OFF * Math.cos(p), -DRAGON_REACH - DRAGON_OFF * Math.sin(p)); return true;
+}
 
 async function loadDragon() {
   /* load in parallel with the scene from the start — no waiting on the boat */
@@ -539,7 +569,7 @@ async function loadDragon() {
     dragonMixer.clipAction(dg.animations[0]).play();   // LoopRepeat is the default
   }
   window.__dragonStatus = 'flying';
-  console.log('[portfolio] dragon circling the boat');
+  console.log('[portfolio] dragon escorting the boat');
 }
 loadDragon().catch(e => { window.__dragonStatus = 'skipped'; console.warn('[portfolio] dragon skipped', e); });
 
@@ -548,26 +578,37 @@ function updateDragon(t, dt) {
   if (dragonMixer) dragonMixer.update(Math.min(dt, 0.05));
   if (dragonT0 < 0) dragonT0 = t;              // the dragon's own clock starts when it appears
   const lt = t - dragonT0;
-  /* the circle's centre chases the boat, eased so it never jitters */
+  /* the track's centre chases the boat, eased so it never jitters */
   const k = 1 - Math.exp(-3 * dt);
   _dCenter.x += (boatState.pos.x - _dCenter.x) * k;
   _dCenter.z += (boatState.pos.z - _dCenter.z) * k;
-  const a = lt * DRAGON_OMEGA;
+  /* …and the track's heading eases after the boat's heading (wraparound-safe) */
+  if (dragonHeading === null) dragonHeading = boatState.heading;
+  let dh = (boatState.heading - dragonHeading) % (Math.PI * 2);
+  if (dh > Math.PI) dh -= Math.PI * 2; else if (dh < -Math.PI) dh += Math.PI * 2;
+  dragonHeading += dh * (1 - Math.exp(-2.5 * dt));
+  const ch = Math.cos(dragonHeading), sh = Math.sin(dragonHeading);
+  /* advance along the racetrack at constant speed; local -> world uses the
+     boat's own frame: forward (sin h, cos h), starboard (cos h, -sin h) */
+  dragonS += DRAGON_SPEED * dt;
+  const inCap = dragonTrackPoint(dragonS, _dLocal);
+  dragonTrackPoint(dragonS + 3, _dLocalN);      // a point a moment further along — the look target
   const y = DRAGON_H + Math.sin(lt * 0.5) * DRAGON_BOB;
   dragonG.position.set(
-    _dCenter.x + Math.cos(a) * DRAGON_R,
+    _dCenter.x + _dLocal.x * ch + _dLocal.y * sh,
     y,
-    _dCenter.z + Math.sin(a) * DRAGON_R
+    _dCenter.z - _dLocal.x * sh + _dLocal.y * ch
   );
-  const a2 = a + 0.08;   // a point a moment further along the circle
   _dNext.set(
-    _dCenter.x + Math.cos(a2) * DRAGON_R,
+    _dCenter.x + _dLocalN.x * ch + _dLocalN.y * sh,
     y,
-    _dCenter.z + Math.sin(a2) * DRAGON_R
+    _dCenter.z - _dLocalN.x * sh + _dLocalN.y * ch
   );
   dragonG.lookAt(_dNext);               // object +z toward travel
   dragonG.rotateY(DRAGON_HEADING_OFFSET);
-  dragonG.rotateZ(0.30);                // gentle bank into the turn
+  /* bank into the caps, near-level on the straights */
+  dragonBank += ((inCap ? 0.32 : 0.04) - dragonBank) * Math.min(1, dt * 3);
+  dragonG.rotateZ(dragonBank);
 }
 
 loadBoat().catch(e => {
