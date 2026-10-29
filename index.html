@@ -515,7 +515,7 @@ const DRAGON_HEADING_OFFSET = 0;   /* if the dragon ever flies tail-first on the
 const DRAGON_OFF = 11;                          // lateral offset of the straights from the boat's axis
 const DRAGON_REACH = 48;                        // straights run from 48 behind the boat to 48 ahead
 const DRAGON_SPEED = 14;                        // units/s along the track — one lap ≈ 18–19 s
-const DRAGON_H = -5.0, DRAGON_BOB = 0.5;        // the clip holds the body well above the group origin (belly-across-the-sky at H=7 and H=0.4 alike) — origin sits ~5 under the surface so the ANIMATED body rides in the water
+const DRAGON_H = -4.75, DRAGON_DIVE = 1.75;     // dive cycle (Dinesh: "goes through water too, pass on water"): origin swings -6.5 (body THROUGH the water) … -3.0 (body ON the water); at -5 the animated body rides at the surface (phone-verified good)
 const DRAGON_STRAIGHT = DRAGON_REACH * 2;                   // 96
 const DRAGON_CAP = Math.PI * DRAGON_OFF;                    // semicircle arc ≈ 34.6
 const DRAGON_LAP = DRAGON_STRAIGHT * 2 + DRAGON_CAP * 2;    // ≈ 261.1
@@ -597,7 +597,7 @@ function updateDragon(t, dt) {
   dragonS += DRAGON_SPEED * dt;
   const inCap = dragonTrackPoint(dragonS, _dLocal);
   dragonTrackPoint(dragonS + 3, _dLocalN);      // a point a moment further along — the look target
-  const y = DRAGON_H + Math.sin(lt * 0.5) * DRAGON_BOB;
+  const y = DRAGON_H + Math.sin(lt * 0.65) * DRAGON_DIVE;   // ~9.7 s dive cycle: up ON the water, down THROUGH it, back up
   dragonG.position.set(
     _dCenter.x + _dLocal.x * ch + _dLocal.y * sh,
     y,
