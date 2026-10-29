@@ -504,12 +504,14 @@ resize();
 /* ================= CHINESE DRAGON (Sketchfab — ok100, CC BY) =================
    The dragon belongs to the boat now: it circles THE BOAT on the water,
    skimming the surface right beside it. Each frame the flight circle's
-   centre eases after the boat's position, radius ~15, height ~4.5 with a
-   gentle bob that dips it to ~2.5 — always near, always in the chase
-   camera's view. Loading starts in parallel with the scene and stays
+   centre eases after the boat's position, radius 26, height ~7 with a
+   gentle bob (band 5–9) — close enough to feel beside the boat, wide
+   enough that its ~30-unit body arcs AROUND the boat, never through it,
+   and always in the chase camera's view. Loading starts in parallel
+   with the scene and stays
    fully non-fatal: if the load fails, the sea simply has no dragon. */
 const DRAGON_HEADING_OFFSET = 0;   /* if the dragon ever flies tail-first on the phone check, flip this to Math.PI — one-line fix */
-const DRAGON_R = 15, DRAGON_H = 4.5, DRAGON_BOB = 2;   // height range 2.5 … 6.5
+const DRAGON_R = 26, DRAGON_H = 7, DRAGON_BOB = 2;   // height range 5 … 9 — clears the boat, body arcs around it
 const DRAGON_OMEGA = (Math.PI * 2) / 16;               // one lap ≈ 16 s
 let dragonG = null, dragonMixer = null, dragonT0 = -1;
 const _dCenter = new THREE.Vector3(0, 0, 0);   // eased circle centre — follows the boat
