@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>Merugu — 3D Portfolio (Sample)</title>
 <!--
-  Prabha1, rewritten minimal at Dinesh's order: ONLY water and boat.
+  Prabha1, rewritten minimal at Dinesh's order: ONLY water, boat and dragon.
   No scroll (the page cannot scroll; the only motion is the boat), no gate, no scenery.
 
   Sky + water: FOLIO's own assets, used directly (Dinesh's order) —
@@ -33,42 +33,15 @@
           border-radius: 999px; font-size: 13px; letter-spacing: .06em; pointer-events: none;
           transition: opacity .6s; white-space: nowrap; }
   @media (pointer: coarse) { #hint { bottom: 92px; } }
-  /* ---- project dock panel (portfolio sample) ---- */
-  #project-panel { position: fixed; left: 50%; bottom: 18px; transform: translate(-50%, 24px); z-index: 9999;
-    width: min(520px, calc(100vw - 28px)); box-sizing: border-box; padding: 16px 20px 14px;
-    background: rgba(13, 48, 80, .78); border: 1px solid rgba(179, 211, 224, .45); border-radius: 18px;
-    color: #F4FAFD; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-    opacity: 0; pointer-events: none; transition: opacity .45s, transform .45s; }
-  #project-panel.show { opacity: 1; transform: translate(-50%, 0); }
-  #project-panel .kicker { font-size: 10px; letter-spacing: .34em; text-transform: uppercase; color: #72B2D5; }
-  #project-panel h2 { margin: 4px 0 2px; font-size: 26px; letter-spacing: .08em; font-weight: 800; }
-  #project-panel .tag { color: #4AABCC; font-size: 13.5px; font-weight: 600; letter-spacing: .04em; }
-  #project-panel p { margin: 8px 0 10px; font-size: 13.5px; line-height: 1.55; color: #DCEEF6; }
-  #project-panel .stack { font-size: 11px; letter-spacing: .14em; color: #B3D3E0; text-transform: uppercase; }
-  @media (pointer: coarse) { #project-panel { bottom: 168px; } }
   #credit { position: fixed; right: 12px; bottom: 10px; z-index: 9997; pointer-events: none;
     font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 11px; letter-spacing: .05em;
     color: rgba(220, 238, 246, .78); background: rgba(13, 48, 80, .45);
     border: 1px solid rgba(179, 211, 224, .3); padding: 4px 10px; border-radius: 999px; }
   @media (pointer: coarse) { #credit { bottom: 92px; } }
-  #dragon-pill { position: fixed; left: 50%; bottom: 54px; transform: translateX(-50%); z-index: 9998; color: #eaf2f8;
-          background: rgba(10,18,28,.38); border: 1px solid rgba(255,255,255,.22); padding: 6px 14px;
-          border-radius: 999px; font-size: 13px; letter-spacing: .06em; pointer-events: none; white-space: nowrap;
-          opacity: 0; transition: opacity .8s; }
-  #dragon-pill.show { opacity: 1; }
-  @media (pointer: coarse) { #dragon-pill { bottom: 130px; } }
 </style>
 </head>
 <body>
 <div id="veil"><div class="t">Merugu</div><div class="s">launching the boat…</div></div>
-<div id="project-panel" aria-live="polite">
-  <div class="kicker">Project · Docked</div>
-  <h2>IMPERIUM</h2>
-  <div class="tag">Multi-AI-Agent Command System</div>
-  <p>One command, many agents. Specialised AI agents work as one crew — the Job Agent discovers jobs, generates tailored resumes and runs application workflows end-to-end, while Resume Studio builds ATS-friendly resumes matched to each job description.</p>
-  <div class="stack">Python · FastAPI · React · PostgreSQL · Supabase · Selenium</div>
-</div>
 <div id="credit">Chinese dragon by ok100 — CC BY</div>
 <script type="importmap">{"imports":{
   "three":"./lib/three.module.js",
@@ -362,7 +335,7 @@ function armTouchUI() {
   const hint = document.createElement('div');
   hint.id = 'hint';
   const coarse = (window.matchMedia && matchMedia('(pointer: coarse)').matches) || navigator.maxTouchPoints > 0;
-  hint.textContent = coarse ? '🛶  Touch the arrows — drive · sail to the iceberg' : '🛶  Drive: WASD / arrows / touch — sail to the iceberg';
+  hint.textContent = coarse ? '🛶  Touch the arrows — drive the boat' : '🛶  Drive: WASD / arrows / touch';
   document.body.appendChild(hint);
   armTouchUI();
 }
@@ -528,215 +501,18 @@ function resize() {
 addEventListener('resize', resize);
 resize();
 
-/* ================= PORTFOLIO WORLD (sample) =================
-   Added on top of the proven Prabha1 water+boat scene — nothing above was
-   changed. Arctic Ice palette only: navy #0D3050, bright #4AABCC, photo
-   #72B2D5, pale ice #B3D3E0 / #DCEEF6, snow #F4FAFD.
-   Layout: boat spawns at origin, bow toward +x/-z (heading 2.6).
-   Hero dock sits beside the spawn; the IMPERIUM iceberg waits ~60 units
-   down the sailing line; tool buoys mark the route between them. */
-const ICE_POS = new THREE.Vector3(31, 0, -51);
-const NAVY = 0x0D3050, BRIGHT = 0x4AABCC, PHOTO = 0x72B2D5, PALE = 0xB3D3E0, ICEC = 0xDCEEF6;
-
-function makeLabelTexture(w, h, draw) {
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  draw(c.getContext('2d'), w, h);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
-  return t;
-}
-
-/* ---------- hero dock ---------- */
-const dock = new THREE.Group();
-dock.position.set(8.5, 0, 9);
-dock.lookAt(0, 0, 0);              // local +z faces the boat spawn
-scene.add(dock);
-{
-  const wood = new THREE.MeshStandardMaterial({ color: 0x77572f, roughness: 0.9 });
-  const woodDark = new THREE.MeshStandardMaterial({ color: 0x54391d, roughness: 0.95 });
-  for (let i = 0; i < 12; i++) {   // plank deck, top at y = 0.55
-    const shade = 0.92 + ((i * 37) % 10) / 60;
-    const m = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.16, 3.4),
-      new THREE.MeshStandardMaterial({ color: new THREE.Color(0x77572f).multiplyScalar(shade), roughness: 0.9 }));
-    m.position.set(-5.7 + i * 1.04, 0.47, 0);
-    dock.add(m);
-  }
-  for (const bx of [-5.2, 5.2]) {  // under-beams
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 3.5), woodDark);
-    beam.position.set(bx, 0.28, 0); dock.add(beam);
-  }
-  for (const px of [-5.9, -2, 2, 5.9]) for (const pz of [-1.5, 1.5]) {  // posts into the water
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.18, 2.4, 8), woodDark);
-    post.position.set(px, -0.5, pz); dock.add(post);
-  }
-  /* MERUGU sign board */
-  const signTex = makeLabelTexture(1024, 512, (g, w, h) => {
-    g.fillStyle = '#0D3050'; g.fillRect(0, 0, w, h);
-    g.strokeStyle = '#4AABCC'; g.lineWidth = 10; g.strokeRect(16, 16, w - 32, h - 32);
-    g.textAlign = 'center'; g.fillStyle = '#F4FAFD';
-    g.font = '900 148px Arial, sans-serif';
-    g.fillText('MERUGU', w / 2, 218);
-    g.fillStyle = '#4AABCC'; g.fillRect(w / 2 - 190, 262, 380, 8);
-    g.font = '600 55px Arial, sans-serif'; g.fillStyle = '#B3D3E0';
-    g.fillText('AI Builder & Vibe Coder', w / 2, 368);
-    g.font = '400 34px Arial, sans-serif'; g.fillStyle = '#72B2D5';
-    g.fillText('3D PORTFOLIO — SAIL TO EXPLORE', w / 2, 440);
-  });
-  const sign = new THREE.Group(); sign.position.set(-3.4, 0.55, 0.9); dock.add(sign);
-  for (const px of [-2.7, 2.7]) {
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 3.6, 8), woodDark);
-    post.position.set(px, 1.8, 0); sign.add(post);
-  }
-  const signBack = new THREE.Mesh(new THREE.BoxGeometry(6.6, 3.1, 0.16),
-    new THREE.MeshStandardMaterial({ color: NAVY, roughness: 0.7 }));
-  signBack.position.y = 3.3; sign.add(signBack);
-  const signFace = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 3.0),
-    new THREE.MeshBasicMaterial({ map: signTex }));
-  signFace.position.set(0, 3.3, 0.1); sign.add(signFace);
-  /* portrait slab */
-  const slab = new THREE.Group(); slab.position.set(3.2, 0.55, 0.9); slab.rotation.x = -0.05; dock.add(slab);
-  const pPost = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 1.1, 8), woodDark);
-  pPost.position.y = 0.55; slab.add(pPost);
-  const frame = new THREE.Mesh(new THREE.BoxGeometry(2.7, 3.5, 0.14),
-    new THREE.MeshStandardMaterial({ color: NAVY, roughness: 0.6 }));
-  frame.position.y = 2.9; slab.add(frame);
-  const portrait = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 3.2),
-    new THREE.MeshBasicMaterial({ map: new THREE.TextureLoader().load('./img/merugu-portrait.jpg', t => { t.colorSpace = THREE.SRGBColorSpace; }) }));
-  portrait.position.set(0, 2.9, 0.09); slab.add(portrait);
-  /* folio japanese lanterns at the deck ends — best effort, non-fatal */
-  new GLTFLoader().loadAsync('./models/japanese_lantern.glb').then(gltf => {
-    const proto = gltf.scene;
-    const box = new THREE.Box3().setFromObject(proto);
-    const size = box.getSize(new THREE.Vector3());
-    const s = 2.4 / Math.max(size.y, 0.001);
-    for (const lx of [-6.1, 6.1]) {
-      const inst = proto.clone();
-      inst.scale.setScalar(s);
-      inst.position.set(lx, 0.55 - box.min.y * s, 1.2);
-      dock.add(inst);
-    }
-  }).catch(e => console.warn('[portfolio] lantern skipped', e));
-}
-
-/* ---------- IMPERIUM iceberg ---------- */
-const iceberg = new THREE.Group();
-iceberg.position.copy(ICE_POS);
-scene.add(iceberg);
-function iceRock(r, seed) {
-  const geo = new THREE.IcosahedronGeometry(r, 2);
-  const p = geo.attributes.position, v = new THREE.Vector3();
-  for (let i = 0; i < p.count; i++) {
-    v.fromBufferAttribute(p, i);
-    const d = 1 + 0.17 * Math.sin(v.x * 0.55 + seed) * Math.cos(v.z * 0.5 + seed * 1.7)
-              + 0.11 * Math.sin(v.y * 0.8 + seed * 0.6);
-    v.multiplyScalar(d); p.setXYZ(i, v.x, v.y, v.z);
-  }
-  geo.computeVertexNormals();
-  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-    color: ICEC, roughness: 0.38, metalness: 0.02, flatShading: true }));
-  return m;
-}
-{
-  const main = iceRock(11, 1.3); main.scale.set(1, 0.62, 1); main.position.y = 1.4; iceberg.add(main);
-  const c1 = iceRock(4.5, 4.1); c1.scale.set(1, 0.6, 1); c1.position.set(9.5, 0.2, 4.5); iceberg.add(c1);
-  const c2 = iceRock(3.4, 7.7); c2.scale.set(1, 0.6, 1); c2.position.set(-9, 0.1, 6); iceberg.add(c2);
-  const skirt = new THREE.Mesh(new THREE.CylinderGeometry(13.5, 16, 1.1, 7),
-    new THREE.MeshStandardMaterial({ color: PALE, roughness: 0.5, flatShading: true }));
-  skirt.position.y = 0.05; iceberg.add(skirt);
-  /* screen + name board, facing back toward the dock */
-  const face = new THREE.Group();
-  face.position.set(-6.4, 0, 10.6);                   // spawn-facing slope of the berg
-  face.rotation.y = Math.atan2(-ICE_POS.x, -ICE_POS.z);   // +z points back at the dock
-  iceberg.add(face);
-  const scr = new THREE.Group(); scr.position.set(0, 5.4, 0); scr.rotation.x = -0.05; face.add(scr);
-  const scrFrame = new THREE.Mesh(new THREE.BoxGeometry(11.9, 7.1, 0.35),
-    new THREE.MeshStandardMaterial({ color: NAVY, roughness: 0.55 }));
-  scr.add(scrFrame);
-  const scrFace = new THREE.Mesh(new THREE.PlaneGeometry(11.3, 6.5),
-    new THREE.MeshBasicMaterial({ map: new THREE.TextureLoader().load('./img/imperium-main.jpg', t => { t.colorSpace = THREE.SRGBColorSpace; }) }));
-  scrFace.position.z = 0.2; scr.add(scrFace);
-  const boardTex = makeLabelTexture(1024, 256, (g, w, h) => {
-    g.fillStyle = '#0D3050'; g.fillRect(0, 0, w, h);
-    g.strokeStyle = '#4AABCC'; g.lineWidth = 6; g.strokeRect(10, 10, w - 20, h - 20);
-    g.textAlign = 'center'; g.fillStyle = '#F4FAFD';
-    g.font = '800 96px Arial, sans-serif'; g.fillText('IMPERIUM', w / 2, 118);
-    g.font = '600 46px Arial, sans-serif'; g.fillStyle = '#4AABCC';
-    g.fillText('Multi-Agent Command System', w / 2, 198);
-  });
-  const board = new THREE.Mesh(new THREE.PlaneGeometry(10, 2.5),
-    new THREE.MeshBasicMaterial({ map: boardTex }));
-  board.position.set(0, 1.5, 1.7); face.add(board);
-  const glow = new THREE.PointLight(BRIGHT, 140, 55, 1.8);
-  glow.position.set(0, 5, 7); face.add(glow);
-}
-/* destination glow ring on the water */
-const ring = new THREE.Mesh(new THREE.RingGeometry(16.5, 18.6, 48),
-  new THREE.MeshBasicMaterial({ color: BRIGHT, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false }));
-ring.rotation.x = -Math.PI / 2;
-ring.position.set(ICE_POS.x, 0.07, ICE_POS.z);
-scene.add(ring);
-
-/* ---------- tools buoys along the route ---------- */
-const buoys = [];
-{
-  const labels = ['Python', 'FastAPI', 'React', 'TypeScript', 'Next.js', 'PostgreSQL'];
-  const fwd = new THREE.Vector2(Math.sin(2.6), Math.cos(2.6));       // sailing line
-  const perp = new THREE.Vector2(fwd.y, -fwd.x);
-  labels.forEach((label, i) => {
-    const t = 0.14 + i * 0.16;
-    const side = (i % 2 === 0 ? 1 : -1) * 3.2;
-    const g = new THREE.Group();
-    g.position.set(fwd.x * 60 * t + perp.x * side, 0, fwd.y * 60 * t + perp.y * side);
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.55, 1.1, 10),
-      new THREE.MeshStandardMaterial({ color: NAVY, roughness: 0.5 }));
-    body.position.y = 0.35; g.add(body);
-    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 10),
-      new THREE.MeshStandardMaterial({ color: BRIGHT, emissive: BRIGHT, emissiveIntensity: 2.2 }));
-    tip.position.y = 1.15; g.add(tip);
-    const tex = makeLabelTexture(512, 128, (gc, w, h) => {
-      gc.fillStyle = 'rgba(13,48,80,0.88)';
-      gc.fillRect(6, 14, w - 12, h - 28);
-      gc.strokeStyle = '#4AABCC'; gc.lineWidth = 4;
-      gc.strokeRect(6, 14, w - 12, h - 28);
-      gc.textAlign = 'center'; gc.fillStyle = '#F4FAFD';
-      gc.font = '700 54px Arial, sans-serif';
-      gc.fillText(label, w / 2, h / 2 + 20);
-    });
-    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
-    spr.scale.set(4.8, 1.2, 1); spr.position.y = 2.1; g.add(spr);
-    g.userData.phase = i * 1.13;
-    scene.add(g); buoys.push(g);
-  });
-}
-
-const projectPanel = document.getElementById('project-panel');
-function updateWorld(t) {
-  iceberg.position.y = Math.sin(t * 0.45) * 0.18;
-  iceberg.rotation.z = Math.sin(t * 0.3) * 0.006;
-  iceberg.rotation.x = Math.cos(t * 0.26) * 0.005;
-  ring.material.opacity = 0.32 + 0.16 * Math.sin(t * 1.4);
-  for (const b of buoys) {
-    b.position.y = Math.sin(t * 1.1 + b.userData.phase) * 0.13;
-    b.rotation.z = Math.sin(t * 0.9 + b.userData.phase) * 0.05;
-    b.rotation.x = Math.cos(t * 0.8 + b.userData.phase) * 0.04;
-  }
-  const d = Math.hypot(boatState.pos.x - ICE_POS.x, boatState.pos.z - ICE_POS.z);
-  projectPanel.classList.toggle('show', d < 14);
-}
-window.__icePos = ICE_POS;
-
 /* ================= CHINESE DRAGON (Sketchfab — ok100, CC BY) =================
-   An animated dragon circling low over the sailing route. Loading starts in
-   parallel with the scene (still fully non-fatal: if the load fails, the
-   world below simply has no dragon). The flight is low and close — height
-   ~23, radius 58 — so it crosses the boat camera's view, and DRAGON_PHASE
-   starts it dead ahead of the spawn camera, over the water toward the
-   iceberg side, the moment it appears. */
+   The dragon belongs to the boat now: it circles THE BOAT on the water,
+   skimming the surface right beside it. Each frame the flight circle's
+   centre eases after the boat's position, radius ~15, height ~4.5 with a
+   gentle bob that dips it to ~2.5 — always near, always in the chase
+   camera's view. Loading starts in parallel with the scene and stays
+   fully non-fatal: if the load fails, the sea simply has no dragon. */
 const DRAGON_HEADING_OFFSET = 0;   /* if the dragon ever flies tail-first on the phone check, flip this to Math.PI — one-line fix */
-const DRAGON_CENTER = new THREE.Vector3(ICE_POS.x / 2, 0, ICE_POS.z / 2);  // midway between the dock and the iceberg
-const DRAGON_R = 58, DRAGON_H = 23, DRAGON_OMEGA = (Math.PI * 2) / 60;     // one lap ≈ 60 s
-const DRAGON_PHASE = -2.65;        // start angle: near side of the circle, in front of the spawn camera
-let dragonG = null, dragonMixer = null, dragonPrevT = -1, dragonT0 = -1;
+const DRAGON_R = 15, DRAGON_H = 4.5, DRAGON_BOB = 2;   // height range 2.5 … 6.5
+const DRAGON_OMEGA = (Math.PI * 2) / 16;               // one lap ≈ 16 s
+let dragonG = null, dragonMixer = null, dragonT0 = -1;
+const _dCenter = new THREE.Vector3(0, 0, 0);   // eased circle centre — follows the boat
 const _dNext = new THREE.Vector3();
 
 async function loadDragon() {
@@ -745,7 +521,7 @@ async function loadDragon() {
   const gltf = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
   const dg = await gltf.loadAsync('./models/chinese_dragon.glb');
   const model = dg.scene;
-  model.traverse(o => { if (o.isMesh) o.frustumCulled = false; });   // it crosses the whole sky — never cull it
+  model.traverse(o => { if (o.isMesh) o.frustumCulled = false; });   // never cull it mid-circle
   /* normalise: longest axis -> ~30 units, bounding-box centre -> group origin */
   const box = new THREE.Box3().setFromObject(model);
   const size = box.getSize(new THREE.Vector3());
@@ -761,34 +537,31 @@ async function loadDragon() {
     dragonMixer.clipAction(dg.animations[0]).play();   // LoopRepeat is the default
   }
   window.__dragonStatus = 'flying';
-  console.log('[portfolio] dragon in the sky');
-  /* spot-it aid: a small pill by the hint, shown once the dragon is up */
-  const pill = document.createElement('div');
-  pill.id = 'dragon-pill';
-  pill.textContent = '🐉 The dragon circles above';
-  document.body.appendChild(pill);
-  requestAnimationFrame(() => pill.classList.add('show'));
+  console.log('[portfolio] dragon circling the boat');
 }
 loadDragon().catch(e => { window.__dragonStatus = 'skipped'; console.warn('[portfolio] dragon skipped', e); });
 
-function updateDragon(t) {
+function updateDragon(t, dt) {
   if (!dragonG) return;
-  const dt = dragonPrevT < 0 ? 0 : Math.min(t - dragonPrevT, 0.05);
-  dragonPrevT = t;
-  if (dragonMixer) dragonMixer.update(dt);
+  if (dragonMixer) dragonMixer.update(Math.min(dt, 0.05));
   if (dragonT0 < 0) dragonT0 = t;              // the dragon's own clock starts when it appears
   const lt = t - dragonT0;
-  const a = DRAGON_PHASE + lt * DRAGON_OMEGA;
+  /* the circle's centre chases the boat, eased so it never jitters */
+  const k = 1 - Math.exp(-3 * dt);
+  _dCenter.x += (boatState.pos.x - _dCenter.x) * k;
+  _dCenter.z += (boatState.pos.z - _dCenter.z) * k;
+  const a = lt * DRAGON_OMEGA;
+  const y = DRAGON_H + Math.sin(lt * 0.5) * DRAGON_BOB;
   dragonG.position.set(
-    DRAGON_CENTER.x + Math.cos(a) * DRAGON_R,
-    DRAGON_H + Math.sin(lt * 0.45) * 2.2,
-    DRAGON_CENTER.z + Math.sin(a) * DRAGON_R
+    _dCenter.x + Math.cos(a) * DRAGON_R,
+    y,
+    _dCenter.z + Math.sin(a) * DRAGON_R
   );
-  const a2 = a + 0.02;   // a point a moment further along the circle
+  const a2 = a + 0.08;   // a point a moment further along the circle
   _dNext.set(
-    DRAGON_CENTER.x + Math.cos(a2) * DRAGON_R,
-    DRAGON_H + Math.sin((lt + 0.25) * 0.45) * 2.2,
-    DRAGON_CENTER.z + Math.sin(a2) * DRAGON_R
+    _dCenter.x + Math.cos(a2) * DRAGON_R,
+    y,
+    _dCenter.z + Math.sin(a2) * DRAGON_R
   );
   dragonG.lookAt(_dNext);               // object +z toward travel
   dragonG.rotateY(DRAGON_HEADING_OFFSET);
@@ -806,8 +579,7 @@ renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.05);
   wt += dt;
   step(dt, wt);
-  updateWorld(wt);
-  updateDragon(wt);
+  updateDragon(wt, dt);
   waterMesh.material.uniforms.time.value += dt * 0.5;   // folio's timeScale
   renderer.render(scene, camera);
   window.__frames++;
