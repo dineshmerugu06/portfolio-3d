@@ -515,7 +515,7 @@ const DRAGON_HEADING_OFFSET = 0;   /* if the dragon ever flies tail-first on the
 const DRAGON_OFF = 11;                          // lateral offset of the straights from the boat's axis
 const DRAGON_REACH = 48;                        // straights run from 48 behind the boat to 48 ahead
 const DRAGON_SPEED = 7;                         // units/s along the track — one lap ≈ 37 s (Dinesh: slow, we should FEEL it passing)
-const DRAGON_H = -4.75, DRAGON_DIVE = 1.75;     // dive cycle (Dinesh: "goes through water too, pass on water"): origin swings -6.5 (body THROUGH the water) … -3.0 (body ON the water); at -5 the animated body rides at the surface (phone-verified good)
+const DRAGON_H = -5.3, DRAGON_DIVE = 1.2;       // dive cycle, lowered so the body always TOUCHES the water (Dinesh): origin swings -6.5 (body THROUGH the water) … -4.1 (belly skimming the surface, still in contact); at -5 the animated body rides at the surface (phone-verified good)
 const DRAGON_STRAIGHT = DRAGON_REACH * 2;                   // 96
 const DRAGON_CAP = Math.PI * DRAGON_OFF;                    // semicircle arc ≈ 34.6
 const DRAGON_LAP = DRAGON_STRAIGHT * 2 + DRAGON_CAP * 2;    // ≈ 261.1
