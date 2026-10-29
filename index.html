@@ -38,11 +38,22 @@
     color: rgba(220, 238, 246, .78); background: rgba(13, 48, 80, .45);
     border: 1px solid rgba(179, 211, 224, .3); padding: 4px 10px; border-radius: 999px; }
   @media (pointer: coarse) { #credit { bottom: 92px; } }
+  #uw-tint { position: fixed; inset: 0; z-index: 40; pointer-events: none; opacity: 0;
+    background: radial-gradient(ellipse at 50% 42%, rgba(23, 92, 138, .28) 0%, rgba(7, 41, 63, .55) 78%),
+                linear-gradient(180deg, rgba(16, 74, 110, .30), rgba(4, 26, 43, .48)); }
+  #mode-btn { position: fixed; top: calc(14px + env(safe-area-inset-top, 0px)); right: 14px; z-index: 9999;
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 15px; letter-spacing: .04em;
+    color: #eaf2f8; background: rgba(13, 48, 80, .55); border: 1px solid rgba(179, 211, 224, .45);
+    padding: 10px 18px; border-radius: 999px; cursor: pointer; touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent; backdrop-filter: blur(3px); }
+  #mode-btn:active { background: rgba(30, 91, 138, .7); }
 </style>
 </head>
 <body>
 <div id="veil"><div class="t">Merugu</div><div class="s">launching the boat…</div></div>
-<div id="credit">Chinese dragon by ok100 — CC BY</div>
+<div id="uw-tint"></div>
+<button id="mode-btn" type="button">🐉 Dragon</button>
+<div id="credit">Chinese dragon by ok100 — CC BY · Underwater world adapted from canariasart.com (study)</div>
 <script type="importmap">{"imports":{
   "three":"./lib/three.module.js",
   "three/addons/":"./lib/addons/",
@@ -50,6 +61,7 @@
 <script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from './lib/addons/libs/meshopt_decoder.module.js';
 import { U, UNIFORMS_GLSL, NOISE, ATMOS, patch } from './lib/sakura/shared.js';
@@ -350,6 +362,9 @@ const LOOM_TOP = new THREE.Vector3(0, 0, 0), LOOM_KNEE = new THREE.Vector3(0, -0
       LOOM_END = new THREE.Vector3(0, -1.25, -3.1), BLADE = new THREE.Vector3(0, -1.1, -2.8);
 const _oa = new THREE.Vector3(), _oe = new THREE.Vector3();
 const _m4 = new THREE.Matrix4(), _fwdV = new THREE.Vector3(), _desired = new THREE.Vector3(), _lookT = new THREE.Vector3();
+const _camPos = new THREE.Vector3(), _camLook = new THREE.Vector3();
+const _dCamPos = new THREE.Vector3(), _dCamLook = new THREE.Vector3(), _dDirV = new THREE.Vector3();
+const dChase = { init: false, pos: new THREE.Vector3(), look: new THREE.Vector3() };   // eased dragon chase shot
 const BOUND_R = 700;   // soft open-water bound: speed bleeds off and the sheet is clamped at r = 700
 
 /* ================= per-frame ================= */
@@ -360,12 +375,13 @@ window.__frames = 0;
 function step(dt, t) {
   const S = boatState;
   /* --- physics: throttle, drag, rudder (from the folio boat add-on) --- */
-  const accel = keys.fwd ? 2.4 : keys.rev ? -1.7 : 0;
+  const boatInput = (mode === 'boat' && DG.returning <= 0);   // in dragon mode the keys swim the dragon instead; the boat's engine is cut and it drifts to a stop
+  const accel = boatInput ? (keys.fwd ? 2.4 : keys.rev ? -1.7 : 0) : 0;
   S.speed += accel * dt;
   S.speed -= S.speed * 0.55 * dt;
   S.speed = THREE.MathUtils.clamp(S.speed, -2.5, 7.5);
   if (!keys.fwd && !keys.rev && Math.abs(S.speed) < 0.02) S.speed = 0;
-  const turnIn = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+  const turnIn = boatInput ? ((keys.right ? 1 : 0) - (keys.left ? 1 : 0)) : 0;
   const flow = THREE.MathUtils.clamp(S.speed / 3, -1, 1);
   S.heading -= turnIn * 1.05 * flow * dt;
   _fwdV.set(Math.sin(S.heading), 0, Math.cos(S.heading));
@@ -380,7 +396,7 @@ function step(dt, t) {
   }
   /* --- hull motion: bob, turn lean, throttle pitch --- */
   S.turnLean += ((turnIn * THREE.MathUtils.clamp(Math.abs(S.speed) / 7, 0, 1) * 0.055) - S.turnLean) * Math.min(1, dt * 4);
-  S.pitch += (((keys.fwd ? -0.012 : keys.rev ? 0.01 : 0)) - S.pitch) * Math.min(1, dt * 3);
+  S.pitch += (((boatInput && keys.fwd ? -0.012 : boatInput && keys.rev ? 0.01 : 0)) - S.pitch) * Math.min(1, dt * 3);
   boatG.position.set(S.pos.x, Math.sin(t * 0.9) * 0.06 + Math.abs(S.speed) * 0.008, S.pos.z);
   boatG.rotation.set(
     Math.sin(t * 0.8 + 0.7) * 0.006 + S.pitch,
@@ -468,21 +484,44 @@ function step(dt, t) {
       S.pos.z - Math.cos(ch) * view.dist
     );
     chase.pos.lerp(_desired, 1 - Math.exp(-2.8 * dt));
-    camera.position.copy(chase.pos);
+    _camPos.copy(chase.pos);
     _lookT.copy(S.pos); _lookT.y = 1.2;
     chase.look.lerp(_lookT, 1 - Math.exp(-4 * dt));
-    camera.lookAt(chase.look);
+    _camLook.copy(chase.look);
   } else {
     const a = 0.85 + t * 0.045 + view.yaw;
     const r = view.dist + 1.0;
-    camera.position.set(
+    _camPos.set(
       S.pos.x + Math.sin(a) * r,
       Math.max(1.7, 3.1 + view.pitch * 6),
       S.pos.z + Math.cos(a) * r
     );
-    _lookT.copy(S.pos); _lookT.y = 1.1;
-    camera.lookAt(_lookT);
+    _camLook.copy(S.pos); _camLook.y = 1.1;
   }
+  /* dragon mode: blend the normal shot into the dragon chase shot by
+     modeBlend (smoothstepped) — the switch is a drift, never a cut */
+  if (modeBlend > 0.001 && dragonG) {
+    if (!dChase.init) { dChase.pos.copy(_camPos); dChase.look.copy(dragonG.position); dChase.init = true; }
+    dragonG.getWorldDirection(_dDirV);
+    const dh = Math.atan2(_dDirV.x, _dDirV.z);
+    _dCamPos.set(
+      dragonG.position.x - Math.sin(dh) * 16,
+      dragonG.position.y + 6,
+      dragonG.position.z - Math.cos(dh) * 16
+    );
+    dChase.pos.lerp(_dCamPos, 1 - Math.exp(-3 * dt));
+    _dCamLook.set(
+      dragonG.position.x + Math.sin(dh) * 10,
+      dragonG.position.y + 1,
+      dragonG.position.z + Math.cos(dh) * 10
+    );
+    dChase.look.lerp(_dCamLook, 1 - Math.exp(-4 * dt));
+    const e = modeBlend * modeBlend * (3 - 2 * modeBlend);
+    _camPos.lerp(dChase.pos, e);
+    _camLook.lerp(dChase.look, e);
+  }
+  camera.position.copy(_camPos);
+  camera.lookAt(_camLook);
   camera.updateMatrixWorld();
 }
 
@@ -578,10 +617,71 @@ async function loadDragon() {
 }
 loadDragon().catch(e => { window.__dragonStatus = 'skipped'; console.warn('[portfolio] dragon skipped', e); });
 
-function updateDragon(t, dt) {
-  if (!dragonG) return;
-  if (dragonMixer) dragonMixer.update(Math.min(dt, 0.05));
-  if (dragonT0 < 0) dragonT0 = t;              // the dragon's own clock starts when it appears
+/* ================= DRAGON MODE =================
+   BOAT mode = the escort. DRAGON mode = Dinesh swims the dragon himself.
+   Enter: (a) the dive cycle crosses into its deep phase (sin < -0.55,
+   falling edge only, with an 8 s post-exit cooldown so one dive can't
+   re-grab control), or (b) the 🐉 toggle button. On entry the escort
+   automation stops, the boat's engine cuts (it drifts to a stop) and the
+   camera becomes a dragon chase camera. Exit: the button, or the dragon
+   rising back out (depth > -5.5 after having armed below -8). On exit
+   there is NO teleport: the dragon glides back onto the escort track
+   over ~2.5 s, then the escort resumes and the boat camera re-tracks. */
+let mode = 'boat';                 // 'boat' | 'dragon'
+let modeBlend = 0;                 // eased 0..1 — drives the camera blend + the underwater grade
+let prevCyc = 0, autoEnterAfter = 0;
+const DG = {
+  pos: new THREE.Vector3(), heading: 0, targetDepth: -12,
+  exitArmed: false, returning: 0,
+  fromPos: new THREE.Vector3(), fromFwd: new THREE.Vector3(0, 0, 1),
+};
+const _escPos = new THREE.Vector3(), _escLook = new THREE.Vector3();
+let escInCap = false;
+const _glidePos = new THREE.Vector3(), _glideLook = new THREE.Vector3();
+const HINT_BOAT = '🛶 Drive: WASD / arrows / touch — when the dragon dives deep, you take it over 🐉';
+const HINT_DRAGON = '🐉 You are the dragon — ◀ ▶ turn · ▲ rise · ▼ dive deep';
+
+function setModeUI() {
+  const btn = document.getElementById('mode-btn');
+  if (btn) btn.textContent = mode === 'dragon' ? '🛶 Boat' : '🐉 Dragon';
+  const hint = document.getElementById('hint');
+  if (hint) { hint.textContent = mode === 'dragon' ? HINT_DRAGON : HINT_BOAT; hint.style.opacity = '1'; }
+}
+function enterDragon(t) {
+  if (!dragonG || mode === 'dragon') return;
+  mode = 'dragon';
+  DG.returning = 0;
+  DG.pos.copy(dragonG.position);                       // continue from wherever the escort had it — no jump
+  dragonG.getWorldDirection(_dDirV);
+  DG.heading = Math.atan2(_dDirV.x, _dDirV.z);
+  DG.targetDepth = THREE.MathUtils.clamp(dragonG.position.y, -58, -6);
+  DG.exitArmed = dragonG.position.y < -8;
+  setModeUI();
+  console.log('[portfolio] DRAGON MODE — you are the dragon');
+}
+function exitDragon(t) {
+  if (mode !== 'dragon') return;
+  mode = 'boat';
+  DG.returning = 1;                                    // 1 -> 0 over ~2.5 s of return glide
+  DG.fromPos.copy(dragonG.position);
+  dragonG.getWorldDirection(_dDirV);
+  DG.fromFwd.set(_dDirV.x, 0, _dDirV.z).normalize();
+  autoEnterAfter = t + 8;
+  dChase.init = false;
+  setModeUI();
+  console.log('[portfolio] boat mode — dragon gliding back to its escort');
+}
+{
+  const btn = document.getElementById('mode-btn');
+  if (btn) btn.addEventListener('click', () => { if (mode === 'dragon') exitDragon(wt); else enterDragon(wt); });
+  setModeUI();
+}
+
+/* The escort pose for this frame: advances the racetrack (centre + heading
+   eased after the boat, constant speed along the track, the ~18 s dive
+   cycle for height) and fills _escPos / _escLook without applying them —
+   the return glide blends onto these same values. */
+function escortPose(t, dt) {
   const lt = t - dragonT0;
   /* the track's centre chases the boat, eased so it never jitters */
   const k = 1 - Math.exp(-3 * dt);
@@ -596,25 +696,144 @@ function updateDragon(t, dt) {
   /* advance along the racetrack at constant speed; local -> world uses the
      boat's own frame: forward (sin h, cos h), starboard (cos h, -sin h) */
   dragonS += DRAGON_SPEED * dt;
-  const inCap = dragonTrackPoint(dragonS, _dLocal);
+  escInCap = dragonTrackPoint(dragonS, _dLocal);
   dragonTrackPoint(dragonS + 3, _dLocalN);      // a point a moment further along — the look target
   const y = DRAGON_H + Math.sin(lt * 0.34) * DRAGON_DIVE;   // ~18 s dive cycle — unhurried
   const yNext = DRAGON_H + Math.sin((lt + 1.2) * 0.34) * DRAGON_DIVE;   // height a moment ahead: aiming at it pitches the body — down to dive in, up to come out
-  dragonG.position.set(
+  _escPos.set(
     _dCenter.x + _dLocal.x * ch + _dLocal.y * sh,
     y,
     _dCenter.z - _dLocal.x * sh + _dLocal.y * ch
   );
-  _dNext.set(
+  _escLook.set(
     _dCenter.x + _dLocalN.x * ch + _dLocalN.y * sh,
     yNext,
     _dCenter.z - _dLocalN.x * sh + _dLocalN.y * ch
   );
-  dragonG.lookAt(_dNext);               // object +z toward travel
+}
+function applyDragonPose(pos, look) {
+  dragonG.position.copy(pos);
+  dragonG.lookAt(look);               // object +z toward travel
   dragonG.rotateY(DRAGON_HEADING_OFFSET);
-  /* bank into the caps, near-level on the straights */
-  dragonBank += ((inCap ? 0.32 : 0.04) - dragonBank) * Math.min(1, dt * 3);
   dragonG.rotateZ(dragonBank);
+}
+
+function updateDragon(t, dt) {
+  if (!dragonG) return;
+  if (dragonMixer) dragonMixer.update(Math.min(dt, 0.05));
+  if (dragonT0 < 0) dragonT0 = t;              // the dragon's own clock starts when it appears
+  const lt = t - dragonT0;
+  const cyc = Math.sin(lt * 0.34);
+  /* auto-takeover: the dive cycle crossing into its deep phase hands over the dragon */
+  if (mode === 'boat' && DG.returning <= 0 && prevCyc >= -0.55 && cyc < -0.55 && t > autoEnterAfter) enterDragon(t);
+  prevCyc = cyc;
+  modeBlend = THREE.MathUtils.damp(modeBlend, mode === 'dragon' ? 1 : 0, 3.2, dt);
+
+  if (mode === 'dragon') {
+    /* --- free swim: always gliding forward ~6 u/s; ◀ ▶ turn, ▲ rise, ▼ dive --- */
+    const turnIn = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+    DG.heading -= turnIn * 0.9 * dt;
+    if (keys.fwd) DG.targetDepth += 4.5 * dt;    // ▲ / W — rise toward the surface
+    if (keys.rev) DG.targetDepth -= 4.5 * dt;    // ▼ / S — dive deeper
+    DG.targetDepth = THREE.MathUtils.clamp(DG.targetDepth, -58, -4);
+    const prevY = DG.pos.y;
+    DG.pos.y = THREE.MathUtils.damp(DG.pos.y, DG.targetDepth, 2.0, dt);   // actual depth eases toward target
+    const vy = dt > 0 ? (DG.pos.y - prevY) / dt : 0;
+    DG.pos.x += Math.sin(DG.heading) * 6 * dt;
+    DG.pos.z += Math.cos(DG.heading) * 6 * dt;
+    /* soft round bound: radius ~280 around the underwater world at (0, -40) —
+       beyond it the heading is pushed back toward the centre and the position clamped */
+    const bdx = DG.pos.x, bdz = DG.pos.z + 40;
+    const rr = Math.hypot(bdx, bdz);
+    if (rr > 280) {
+      const toC = Math.atan2(-bdx, -bdz);
+      let dh = (toC - DG.heading) % (Math.PI * 2);
+      if (dh > Math.PI) dh -= Math.PI * 2; else if (dh < -Math.PI) dh += Math.PI * 2;
+      DG.heading += dh * Math.min(1, dt * 1.5);
+      DG.pos.x = bdx * (280 / rr);
+      DG.pos.z = -40 + bdz * (280 / rr);
+    }
+    _dNext.set(
+      DG.pos.x + Math.sin(DG.heading) * 10,
+      DG.pos.y + THREE.MathUtils.clamp(vy * 1.5, -6, 6),   // pitch from vertical velocity — nose up rising, nose down diving
+      DG.pos.z + Math.cos(DG.heading) * 10
+    );
+    dragonBank += ((turnIn * 0.35) - dragonBank) * Math.min(1, dt * 3);   // bank into turns
+    applyDragonPose(DG.pos, _dNext);
+    if (DG.pos.y < -8) DG.exitArmed = true;
+    if (DG.exitArmed && DG.pos.y > -5.5) exitDragon(t);    // it came out of the deep — hand back
+  } else if (DG.returning > 0) {
+    /* --- return glide: smoothstep-blend from the free-swim pose onto the
+       (still advancing) escort track over ~2.5 s, then the escort owns it --- */
+    DG.returning = Math.max(0, DG.returning - dt / 2.5);
+    const g0 = 1 - DG.returning, g = g0 * g0 * (3 - 2 * g0);
+    escortPose(t, dt);
+    _glidePos.lerpVectors(DG.fromPos, _escPos, g);
+    _glideLook.copy(DG.fromPos).addScaledVector(DG.fromFwd, 10).lerp(_escLook, g);
+    dragonBank += ((escInCap ? 0.32 : 0.04) - dragonBank) * Math.min(1, dt * 3);
+    applyDragonPose(_glidePos, _glideLook);
+  } else {
+    escortPose(t, dt);
+    /* bank into the caps, near-level on the straights */
+    dragonBank += ((escInCap ? 0.32 : 0.04) - dragonBank) * Math.min(1, dt * 3);
+    applyDragonPose(_escPos, _escLook);
+  }
+}
+
+/* ================= UNDERWATER WORLD (canariasart, people stripped) =================
+   Their underwater museum scene with the statues removed — whale, manta,
+   turtle (each with its fly loop), jurel + small-fish schools, reefs,
+   cliffs, ocean floor, water surface and dome — resting under the boat's
+   sailing area: scaled ~620 across, centred at (0, -40), its bbox top at
+   y ≈ -2.5 so its own water surface sits just below ours. From the boat
+   the mirror water mostly hides it; in dragon mode it is the world.
+   DRACO-compressed, so it gets its own loader with the local decoder.
+   Fully non-fatal: if it fails, the sea simply stays empty below. */
+window.__uwStatus = 'loading';
+let uwG = null, uwMixer = null;
+async function loadUnderwater() {
+  const draco = new DRACOLoader().setDecoderPath('./lib/draco/');
+  const gltf = new GLTFLoader().setDRACOLoader(draco);
+  const g = await gltf.loadAsync('./models/underwater-world.glb');
+  const model = g.scene;
+  model.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const s = 620 / Math.max(size.x, size.z, 0.001);
+  const c = box.getCenter(new THREE.Vector3());
+  model.scale.setScalar(s);
+  model.position.set(-c.x * s, -box.max.y * s - 2.5, -c.z * s);
+  uwG = new THREE.Group();
+  uwG.add(model);
+  uwG.position.set(0, 0, -40);
+  scene.add(uwG);
+  if (g.animations && g.animations.length) {
+    uwMixer = new THREE.AnimationMixer(model);
+    for (const clip of g.animations) uwMixer.clipAction(clip).play();   // ambient whale / manta / turtle loops
+  }
+  window.__uwStatus = 'loaded';
+  console.log('[portfolio] underwater world loaded');
+}
+loadUnderwater().catch(e => { window.__uwStatus = 'skipped'; console.warn('[portfolio] underwater world skipped', e); });
+
+/* ================= UNDERWATER GRADE (dragon mode only) =================
+   Dinesh rejected an AUTO underwater camera; this grade is tied to his
+   own dragon control — it fades in with modeBlend and fully reverses in
+   boat mode. scene.background is null at startup (the sky is a BackSide
+   mesh, not a background), so the exact startup value is stored and
+   restored, and the sky mesh is hidden past blend 0.5 instead. */
+const skyBg = scene.background;
+const UW_BG = new THREE.Color(0x07293f);
+const uwFog = new THREE.FogExp2(0x0a324e, 0.02);
+const uwTintEl = document.getElementById('uw-tint');
+function applyUnderwaterGrade() {
+  const b = modeBlend;
+  if (uwTintEl) uwTintEl.style.opacity = (b * 0.35).toFixed(3);
+  if (b > 0.003) { uwFog.density = 0.02 * b; scene.fog = uwFog; }
+  else if (scene.fog) scene.fog = null;
+  const under = b > 0.5;
+  sky.visible = !under;
+  scene.background = under ? UW_BG : skyBg;
 }
 
 loadBoat().catch(e => {
@@ -629,6 +848,8 @@ renderer.setAnimationLoop(() => {
   wt += dt;
   step(dt, wt);
   updateDragon(wt, dt);
+  if (uwMixer) uwMixer.update(Math.min(dt, 0.05));
+  applyUnderwaterGrade();
   waterMesh.material.uniforms.time.value += dt * 0.5;   // folio's timeScale
   renderer.render(scene, camera);
   window.__frames++;
