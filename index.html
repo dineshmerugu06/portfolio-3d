@@ -515,8 +515,7 @@ const DRAGON_HEADING_OFFSET = 0;   /* if the dragon ever flies tail-first on the
 const DRAGON_OFF = 11;                          // lateral offset of the straights from the boat's axis
 const DRAGON_REACH = 48;                        // straights run from 48 behind the boat to 48 ahead
 const DRAGON_SPEED = 14;                        // units/s along the track — one lap ≈ 18–19 s
-const DRAGON_PITCH = Math.PI / 2;   // flip to -Math.PI/2 if it ever swims tail-first — the model's length axis is local Y (probe-measured Y span ±15, X/Z ~±5)
-const DRAGON_H = -2.2, DRAGON_BOB = 0.5;        // with the body horizontal (vertical span ~±5), centre at -2.2 puts the back + fins breaking the surface, body IN the water
+const DRAGON_H = -5.0, DRAGON_BOB = 0.5;        // the clip holds the body well above the group origin (belly-across-the-sky at H=7 and H=0.4 alike) — origin sits ~5 under the surface so the ANIMATED body rides in the water
 const DRAGON_STRAIGHT = DRAGON_REACH * 2;                   // 96
 const DRAGON_CAP = Math.PI * DRAGON_OFF;                    // semicircle arc ≈ 34.6
 const DRAGON_LAP = DRAGON_STRAIGHT * 2 + DRAGON_CAP * 2;    // ≈ 261.1
@@ -562,15 +561,12 @@ async function loadDragon() {
   const centre = box.getCenter(new THREE.Vector3());
   model.scale.setScalar(s);
   model.position.copy(centre).multiplyScalar(-s);
-  /* this model's 30-unit length runs along local Y (probe-measured Y span
-     ±15, X/Z ~±5). The pitch must live on a WRAPPER: the built-in clip
-     animates the model's own root, which stomps any rotation set on the
-     model itself (proven — a model-level pitch left the span at ±15). */
-  const pitchG = new THREE.Group();
-  pitchG.rotation.x = DRAGON_PITCH;
-  pitchG.add(model);
+  /* NO pitch: the bind pose stands vertical (Y span ±15) but the built-in
+     clip plays the body HORIZONTAL — screenshots proved a pitch rotates
+     the animated pose upright (a rearing wall). The clip is the truth;
+     only the group height was wrong (see DRAGON_H). */
   dragonG = new THREE.Group();
-  dragonG.add(pitchG);
+  dragonG.add(model);
   scene.add(dragonG);
   if (dg.animations && dg.animations.length) {
     dragonMixer = new THREE.AnimationMixer(model);
