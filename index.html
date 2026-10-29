@@ -245,9 +245,14 @@ function engage() {
 }
 const KEYMAP = { KeyW: 'fwd', ArrowUp: 'fwd', KeyS: 'rev', ArrowDown: 'rev', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right' };
 window.addEventListener('keydown', e => {
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+  if (e.code === 'KeyT') {   // T toggles dragon mode — the 🐉 button does the same
+    if (mode === 'dragon') exitDragon(wt); else enterDragon(wt);
+    e.preventDefault();
+    return;
+  }
   const k = KEYMAP[e.code];
   if (!k) return;
-  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
   keys[k] = true; engage();
   e.preventDefault();
 });
@@ -618,28 +623,27 @@ async function loadDragon() {
 loadDragon().catch(e => { window.__dragonStatus = 'skipped'; console.warn('[portfolio] dragon skipped', e); });
 
 /* ================= DRAGON MODE =================
-   BOAT mode = the escort. DRAGON mode = Dinesh swims the dragon himself.
-   Enter: (a) the dive cycle crosses into its deep phase (sin < -0.55,
-   falling edge only, with an 8 s post-exit cooldown so one dive can't
-   re-grab control), or (b) the 🐉 toggle button. On entry the escort
-   automation stops, the boat's engine cuts (it drifts to a stop) and the
-   camera becomes a dragon chase camera. Exit: the button, or the dragon
-   rising back out (depth > -5.5 after having armed below -8). On exit
-   there is NO teleport: the dragon glides back onto the escort track
-   over ~2.5 s, then the escort resumes and the boat camera re-tracks. */
+   BOAT mode = the escort. DRAGON mode = Dinesh flies/swims the dragon
+   himself — in the SKY and in the SEA, at any time (his order: "dragon
+   should be control at sky also and water both, all time I can control
+   dragon"). Entering/exiting happens ONLY via the 🐉 toggle button or
+   the T key — no dive-cycle takeover, no surface auto-exit. On entry
+   the escort automation stops, the boat's engine cuts (it drifts to a
+   stop) and the camera becomes a dragon chase camera. On exit there is
+   NO teleport: the dragon glides back onto the escort track over
+   ~2.5 s, then the escort resumes and the boat camera re-tracks. */
 let mode = 'boat';                 // 'boat' | 'dragon'
-let modeBlend = 0;                 // eased 0..1 — drives the camera blend + the underwater grade
-let prevCyc = 0, autoEnterAfter = 0;
+let modeBlend = 0;                 // eased 0..1 — drives the camera blend
 const DG = {
-  pos: new THREE.Vector3(), heading: 0, targetDepth: -12,
-  exitArmed: false, returning: 0,
+  pos: new THREE.Vector3(), heading: 0, targetAlt: -12,
+  returning: 0,
   fromPos: new THREE.Vector3(), fromFwd: new THREE.Vector3(0, 0, 1),
 };
 const _escPos = new THREE.Vector3(), _escLook = new THREE.Vector3();
 let escInCap = false;
 const _glidePos = new THREE.Vector3(), _glideLook = new THREE.Vector3();
-const HINT_BOAT = '🛶 Drive: WASD / arrows / touch — when the dragon dives deep, you take it over 🐉';
-const HINT_DRAGON = '🐉 You are the dragon — ◀ ▶ turn · ▲ rise · ▼ dive deep';
+const HINT_BOAT = '🛶 Drive the boat — tap 🐉 any time to fly the dragon, sky and sea';
+const HINT_DRAGON = '🐉 You are the dragon — ◀ ▶ turn · ▲ fly up · ▼ dive down · sky and sea are yours';
 
 function setModeUI() {
   const btn = document.getElementById('mode-btn');
@@ -654,8 +658,7 @@ function enterDragon(t) {
   DG.pos.copy(dragonG.position);                       // continue from wherever the escort had it — no jump
   dragonG.getWorldDirection(_dDirV);
   DG.heading = Math.atan2(_dDirV.x, _dDirV.z);
-  DG.targetDepth = THREE.MathUtils.clamp(dragonG.position.y, -58, -6);
-  DG.exitArmed = dragonG.position.y < -8;
+  DG.targetAlt = THREE.MathUtils.clamp(dragonG.position.y, -56, 45);
   setModeUI();
   console.log('[portfolio] DRAGON MODE — you are the dragon');
 }
@@ -666,7 +669,6 @@ function exitDragon(t) {
   DG.fromPos.copy(dragonG.position);
   dragonG.getWorldDirection(_dDirV);
   DG.fromFwd.set(_dDirV.x, 0, _dDirV.z).normalize();
-  autoEnterAfter = t + 8;
   dChase.init = false;
   setModeUI();
   console.log('[portfolio] boat mode — dragon gliding back to its escort');
@@ -722,25 +724,22 @@ function updateDragon(t, dt) {
   if (!dragonG) return;
   if (dragonMixer) dragonMixer.update(Math.min(dt, 0.05));
   if (dragonT0 < 0) dragonT0 = t;              // the dragon's own clock starts when it appears
-  const lt = t - dragonT0;
-  const cyc = Math.sin(lt * 0.34);
-  /* auto-takeover: the dive cycle crossing into its deep phase hands over the dragon */
-  if (mode === 'boat' && DG.returning <= 0 && prevCyc >= -0.55 && cyc < -0.55 && t > autoEnterAfter) enterDragon(t);
-  prevCyc = cyc;
   modeBlend = THREE.MathUtils.damp(modeBlend, mode === 'dragon' ? 1 : 0, 3.2, dt);
 
   if (mode === 'dragon') {
-    /* --- free swim: always gliding forward ~6 u/s; ◀ ▶ turn, ▲ rise, ▼ dive --- */
+    /* --- free flight / swim, sky and sea: always gliding forward
+       ~8 u/s; ◀ ▶ turn, ▲ climb, ▼ descend — altitude -56 (just above
+       the underwater floor at -63) .. +45 (well into the sky) --- */
     const turnIn = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
     DG.heading -= turnIn * 0.9 * dt;
-    if (keys.fwd) DG.targetDepth += 4.5 * dt;    // ▲ / W — rise toward the surface
-    if (keys.rev) DG.targetDepth -= 4.5 * dt;    // ▼ / S — dive deeper
-    DG.targetDepth = THREE.MathUtils.clamp(DG.targetDepth, -58, -4);
+    if (keys.fwd) DG.targetAlt += 7 * dt;    // ▲ / W — fly up
+    if (keys.rev) DG.targetAlt -= 7 * dt;    // ▼ / S — dive down
+    DG.targetAlt = THREE.MathUtils.clamp(DG.targetAlt, -56, 45);
     const prevY = DG.pos.y;
-    DG.pos.y = THREE.MathUtils.damp(DG.pos.y, DG.targetDepth, 2.0, dt);   // actual depth eases toward target
+    DG.pos.y = THREE.MathUtils.damp(DG.pos.y, DG.targetAlt, 2.0, dt);   // actual altitude eases toward target
     const vy = dt > 0 ? (DG.pos.y - prevY) / dt : 0;
-    DG.pos.x += Math.sin(DG.heading) * 6 * dt;
-    DG.pos.z += Math.cos(DG.heading) * 6 * dt;
+    DG.pos.x += Math.sin(DG.heading) * 8 * dt;
+    DG.pos.z += Math.cos(DG.heading) * 8 * dt;
     /* soft round bound: radius ~280 around the underwater world at (0, -40) —
        beyond it the heading is pushed back toward the centre and the position clamped */
     const bdx = DG.pos.x, bdz = DG.pos.z + 40;
@@ -755,13 +754,12 @@ function updateDragon(t, dt) {
     }
     _dNext.set(
       DG.pos.x + Math.sin(DG.heading) * 10,
-      DG.pos.y + THREE.MathUtils.clamp(vy * 1.5, -6, 6),   // pitch from vertical velocity — nose up rising, nose down diving
+      DG.pos.y + THREE.MathUtils.clamp(vy * 1.5, -8, 8),   // pitch from vertical velocity — nose up climbing, nose down diving
       DG.pos.z + Math.cos(DG.heading) * 10
     );
     dragonBank += ((turnIn * 0.35) - dragonBank) * Math.min(1, dt * 3);   // bank into turns
     applyDragonPose(DG.pos, _dNext);
-    if (DG.pos.y < -8) DG.exitArmed = true;
-    if (DG.exitArmed && DG.pos.y > -5.5) exitDragon(t);    // it came out of the deep — hand back
+    /* no auto-exit: he keeps the dragon until he hands it back (button / T) */
   } else if (DG.returning > 0) {
     /* --- return glide: smoothstep-blend from the free-swim pose onto the
        (still advancing) escort track over ~2.5 s, then the escort owns it --- */
@@ -783,12 +781,11 @@ function updateDragon(t, dt) {
 /* ================= UNDERWATER WORLD (canariasart, people stripped) =================
    Their underwater museum scene with the statues removed — whale, manta,
    turtle (each with its fly loop), jurel + small-fish schools, reefs,
-   cliffs, ocean floor, water surface and dome — resting under the boat's
-   sailing area: scaled ~620 across, centred at (0, -40), its bbox top at
-   y ≈ -2.5 so its own water surface sits just below ours. From the boat
-   the mirror water mostly hides it; in dragon mode it is the world.
-   DRACO-compressed, so it gets its own loader with the local decoder.
-   Fully non-fatal: if it fails, the sea simply stays empty below. */
+   cliffs, installations and ocean floor — resting under the boat's
+   sailing area. From the boat the mirror water mostly hides it; below
+   the surface it is the world. DRACO-compressed, so it gets its own
+   loader with the local decoder. Fully non-fatal: if it fails, the sea
+   simply stays empty below. */
 window.__uwStatus = 'loading';
 let uwG = null, uwMixer = null;
 async function loadUnderwater() {
@@ -796,16 +793,32 @@ async function loadUnderwater() {
   const gltf = new GLTFLoader().setDRACOLoader(draco);
   const g = await gltf.loadAsync('./models/underwater-world.glb');
   const model = g.scene;
-  model.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
-  const box = new THREE.Box3().setFromObject(model);
-  const size = box.getSize(new THREE.Vector3());
-  const s = 620 / Math.max(size.x, size.z, 0.001);
-  const c = box.getCenter(new THREE.Vector3());
-  model.scale.setScalar(s);
-  model.position.set(-c.x * s, -box.max.y * s - 2.5, -c.z * s);
+  model.traverse(o => {
+    if (o.isMesh) o.frustumCulled = false;
+    /* hide what three can't use from the Babylon original: the opaque
+       environmentDome shell (our fog/background does its job), its
+       waterFlat sheet (our mirror water is the surface — a second sheet
+       reads as a double surface), the museumZoneIndicator UI junk, and
+       every *Collider helper (invisible in Babylon, solid boxes here —
+       one is a 15-unit box around the whale) */
+    const n = o.name || '';
+    if (n === 'environmentDome' || n === 'waterFlat' || n === 'museumZoneIndicator' || n.includes('Collider')) o.visible = false;
+  });
+  /* CONTENT-anchored placement — do NOT Box3 the whole group: the
+     environmentDome sphere spans local Y -30.5..68.2 and dominates any
+     whole-model bounds, which is what buried the actual floor/content
+     ~300 units down in the first build. Anchored on the measured
+     content instead (bind pose, raw units): oceanFloor is a flat plane
+     at local Y=0 (X ±32, Z ±37) with everything standing on it, and
+     the world's own surface (waterFlat) sits at local Y=19.3. Scale
+     3.2, floor centred at (0, -40): group.y = -1.5 - 19.3*3.2 ≈ -63.3
+     puts the world's surface at y = -1.5, its floor at -63.3 and the
+     installation tops around -35. */
+  const UW_SCALE = 3.2;
+  model.scale.setScalar(UW_SCALE);
   uwG = new THREE.Group();
   uwG.add(model);
-  uwG.position.set(0, 0, -40);
+  uwG.position.set(0, -1.5 - 19.3 * UW_SCALE, -40);
   scene.add(uwG);
   if (g.animations && g.animations.length) {
     uwMixer = new THREE.AnimationMixer(model);
@@ -816,18 +829,22 @@ async function loadUnderwater() {
 }
 loadUnderwater().catch(e => { window.__uwStatus = 'skipped'; console.warn('[portfolio] underwater world skipped', e); });
 
-/* ================= UNDERWATER GRADE (dragon mode only) =================
-   Dinesh rejected an AUTO underwater camera; this grade is tied to his
-   own dragon control — it fades in with modeBlend and fully reverses in
-   boat mode. scene.background is null at startup (the sky is a BackSide
+/* ================= UNDERWATER GRADE (camera-height driven) =================
+   The grade follows the CAMERA, not the mode, and applies in BOTH
+   modes: clear in the sky, fading in as the camera sinks through the
+   surface, full by y = -6. Flying the dragon high stays crystal clear;
+   the moment the camera submerges — chasing a dive — the deep takes
+   over. scene.background is null at startup (the sky is a BackSide
    mesh, not a background), so the exact startup value is stored and
    restored, and the sky mesh is hidden past blend 0.5 instead. */
 const skyBg = scene.background;
 const UW_BG = new THREE.Color(0x07293f);
 const uwFog = new THREE.FogExp2(0x0a324e, 0.02);
 const uwTintEl = document.getElementById('uw-tint');
+let gradeBlend = 0;
 function applyUnderwaterGrade() {
-  const b = modeBlend;
+  gradeBlend = THREE.MathUtils.smoothstep(-camera.position.y, 0, 6);
+  const b = gradeBlend;
   if (uwTintEl) uwTintEl.style.opacity = (b * 0.35).toFixed(3);
   if (b > 0.003) { uwFog.density = 0.02 * b; scene.fog = uwFog; }
   else if (scene.fog) scene.fog = null;
