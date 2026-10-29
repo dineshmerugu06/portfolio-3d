@@ -515,7 +515,8 @@ const DRAGON_HEADING_OFFSET = 0;   /* if the dragon ever flies tail-first on the
 const DRAGON_OFF = 11;                          // lateral offset of the straights from the boat's axis
 const DRAGON_REACH = 48;                        // straights run from 48 behind the boat to 48 ahead
 const DRAGON_SPEED = 14;                        // units/s along the track — one lap ≈ 18–19 s
-const DRAGON_H = -1.0, DRAGON_BOB = 0.5;        // centre below the surface: back + fins break the water, body IN it (verified by screenshot — at 0.4 the arched body still read as sky)
+const DRAGON_PITCH = Math.PI / 2;   // flip to -Math.PI/2 if it ever swims tail-first — the model's length axis is local Y (probe-measured Y span ±15, X/Z ~±5)
+const DRAGON_H = -2.2, DRAGON_BOB = 0.5;        // with the body horizontal (vertical span ~±5), centre at -2.2 puts the back + fins breaking the surface, body IN the water
 const DRAGON_STRAIGHT = DRAGON_REACH * 2;                   // 96
 const DRAGON_CAP = Math.PI * DRAGON_OFF;                    // semicircle arc ≈ 34.6
 const DRAGON_LAP = DRAGON_STRAIGHT * 2 + DRAGON_CAP * 2;    // ≈ 261.1
@@ -553,6 +554,7 @@ async function loadDragon() {
   const gltf = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
   const dg = await gltf.loadAsync('./models/chinese_dragon.glb');
   const model = dg.scene;
+  model.rotation.x = DRAGON_PITCH;   // this model's 30-unit length runs along local Y (measured: Y span ±15) — pitch it horizontal so it lies ON the water instead of towering into the sky
   model.traverse(o => { if (o.isMesh) o.frustumCulled = false; });   // never cull it mid-circle
   /* normalise: longest axis -> ~30 units, bounding-box centre -> group origin */
   const box = new THREE.Box3().setFromObject(model);
