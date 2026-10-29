@@ -514,7 +514,7 @@ resize();
 const DRAGON_HEADING_OFFSET = 0;   /* if the dragon ever flies tail-first on the phone check, flip this to Math.PI — one-line fix */
 const DRAGON_OFF = 11;                          // lateral offset of the straights from the boat's axis
 const DRAGON_REACH = 48;                        // straights run from 48 behind the boat to 48 ahead
-const DRAGON_SPEED = 14;                        // units/s along the track — one lap ≈ 18–19 s
+const DRAGON_SPEED = 7;                         // units/s along the track — one lap ≈ 37 s (Dinesh: slow, we should FEEL it passing)
 const DRAGON_H = -4.75, DRAGON_DIVE = 1.75;     // dive cycle (Dinesh: "goes through water too, pass on water"): origin swings -6.5 (body THROUGH the water) … -3.0 (body ON the water); at -5 the animated body rides at the surface (phone-verified good)
 const DRAGON_STRAIGHT = DRAGON_REACH * 2;                   // 96
 const DRAGON_CAP = Math.PI * DRAGON_OFF;                    // semicircle arc ≈ 34.6
@@ -570,7 +570,8 @@ async function loadDragon() {
   scene.add(dragonG);
   if (dg.animations && dg.animations.length) {
     dragonMixer = new THREE.AnimationMixer(model);
-    dragonMixer.clipAction(dg.animations[0]).play();   // LoopRepeat is the default
+    const act = dragonMixer.clipAction(dg.animations[0]);
+    act.timeScale = 0.55; act.play();   // slow, heavy undulation to match the slow passes (LoopRepeat is the default)
   }
   window.__dragonStatus = 'flying';
   console.log('[portfolio] dragon escorting the boat');
@@ -597,7 +598,7 @@ function updateDragon(t, dt) {
   dragonS += DRAGON_SPEED * dt;
   const inCap = dragonTrackPoint(dragonS, _dLocal);
   dragonTrackPoint(dragonS + 3, _dLocalN);      // a point a moment further along — the look target
-  const y = DRAGON_H + Math.sin(lt * 0.65) * DRAGON_DIVE;   // ~9.7 s dive cycle: up ON the water, down THROUGH it, back up
+  const y = DRAGON_H + Math.sin(lt * 0.34) * DRAGON_DIVE;   // ~18 s dive cycle: lingers ON the water, sinks THROUGH it, rises back — unhurried
   dragonG.position.set(
     _dCenter.x + _dLocal.x * ch + _dLocal.y * sh,
     y,
