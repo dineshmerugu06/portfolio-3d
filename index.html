@@ -515,7 +515,7 @@ const DRAGON_HEADING_OFFSET = 0;   /* if the dragon ever flies tail-first on the
 const DRAGON_OFF = 11;                          // lateral offset of the straights from the boat's axis
 const DRAGON_REACH = 48;                        // straights run from 48 behind the boat to 48 ahead
 const DRAGON_SPEED = 7;                         // units/s along the track — one lap ≈ 37 s (Dinesh: slow, we should FEEL it passing)
-const DRAGON_H = -5.75, DRAGON_DIVE = 0.75;     // dive cycle capped at the phone-verified TOUCHING level: origin swings -6.5 (body THROUGH the water) … -5.0 (body ON the water, touching — the level Dinesh approved). The earlier -4.1 top lifted the belly clear of the surface ("not touching")
+const DRAGON_H = -6.0, DRAGON_DIVE = 1.5;       // DIVE IN + COME OUT (Dinesh): origin swings -7.5 (body under, through the water) … -4.5 (emerging); the pitch comes from aiming the look target at the height ~1.2 s ahead in the cycle — nose-down going in, nose-up coming out
 const DRAGON_STRAIGHT = DRAGON_REACH * 2;                   // 96
 const DRAGON_CAP = Math.PI * DRAGON_OFF;                    // semicircle arc ≈ 34.6
 const DRAGON_LAP = DRAGON_STRAIGHT * 2 + DRAGON_CAP * 2;    // ≈ 261.1
@@ -598,7 +598,8 @@ function updateDragon(t, dt) {
   dragonS += DRAGON_SPEED * dt;
   const inCap = dragonTrackPoint(dragonS, _dLocal);
   dragonTrackPoint(dragonS + 3, _dLocalN);      // a point a moment further along — the look target
-  const y = DRAGON_H + Math.sin(lt * 0.34) * DRAGON_DIVE;   // ~18 s dive cycle: lingers ON the water, sinks THROUGH it, rises back — unhurried
+  const y = DRAGON_H + Math.sin(lt * 0.34) * DRAGON_DIVE;   // ~18 s dive cycle — unhurried
+  const yNext = DRAGON_H + Math.sin((lt + 1.2) * 0.34) * DRAGON_DIVE;   // height a moment ahead: aiming at it pitches the body — down to dive in, up to come out
   dragonG.position.set(
     _dCenter.x + _dLocal.x * ch + _dLocal.y * sh,
     y,
@@ -606,7 +607,7 @@ function updateDragon(t, dt) {
   );
   _dNext.set(
     _dCenter.x + _dLocalN.x * ch + _dLocalN.y * sh,
-    y,
+    yNext,
     _dCenter.z - _dLocalN.x * sh + _dLocalN.y * ch
   );
   dragonG.lookAt(_dNext);               // object +z toward travel
